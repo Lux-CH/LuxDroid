@@ -43,11 +43,6 @@ object ConnectionService {
         .replace("ch-opentransportdataswiss26", "ch")
         .replace("ch_Parent", "ch_")
 
-    fun sanitizedStopId(stopId: String): String? {
-        if (stopId.isEmpty()) return null
-        return stopId.substringBefore(":")
-    }
-
     suspend fun connections(stopId: String): List<String> {
         val key = cleanStopId(stopId)
 

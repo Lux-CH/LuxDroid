@@ -197,10 +197,7 @@ fun StopPopoverCard(
     val scope = rememberCoroutineScope()
     val shape = RoundedCornerShape(LuxShapes.r16)
 
-    val connectionStopId = remember(place.stopId) {
-        ConnectionService.sanitizedStopId(place.stopId.orEmpty()).orEmpty()
-    }
-    val connections by rememberConnections(connectionStopId)
+    val connections by rememberConnections(place.stopId.orEmpty())
 
     val buttonTextColor = if (isDark && color == Color.White) Color.Black else Color.White
 
