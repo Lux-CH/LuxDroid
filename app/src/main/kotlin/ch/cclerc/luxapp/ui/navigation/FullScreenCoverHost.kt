@@ -95,8 +95,8 @@ private fun CoverLayer(
 
     AnimatedVisibility(
         visibleState = visibleState,
-        enter = slideInVertically(animationSpec = tween(350, easing = EaseOut)) { it },
-        exit = slideOutVertically(animationSpec = tween(350, easing = EaseOut)) { it }
+        enter = androidx.compose.animation.slideInHorizontally(animationSpec = tween(350, easing = EaseOut)) { it },
+        exit = androidx.compose.animation.slideOutHorizontally(animationSpec = tween(350, easing = EaseOut)) { it }
     ) {
         Box(
             Modifier

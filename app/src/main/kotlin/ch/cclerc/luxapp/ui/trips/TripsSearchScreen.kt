@@ -8,6 +8,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,12 +39,16 @@ internal fun TripsSearchViewModel.installPoiHooks(provider: PoiSearchProvider = 
 
 @Stable
 class TripsSearchScreenState internal constructor(val viewModel: TripsSearchViewModel) {
+    val toFocusRequester = androidx.compose.ui.focus.FocusRequester()
+    var focusToTrigger by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
 
     fun enterSearchMode() {
         if (viewModel.isCurrentPositionAvailable()) {
             viewModel.selectCurrentPosition()
         }
         viewModel.setActiveSearchField(SearchField.TO)
+        focusToTrigger += 1
     }
 
     fun reset() {
@@ -75,11 +80,18 @@ fun TripsSearchHeaderSlot(
     onBack: (() -> Unit)? = null,
     shortcutSymbol: (SearchResult) -> String? = { null }
 ) {
+    LaunchedEffect(state.focusToTrigger) {
+        if (state.focusToTrigger > 0) {
+            kotlinx.coroutines.delay(150)
+            runCatching { state.toFocusRequester.requestFocus() }
+        }
+    }
     TripsSearchHeaderView(
         viewModel = state.viewModel,
         modifier = modifier,
         onBack = onBack,
-        shortcutSymbol = shortcutSymbol
+        shortcutSymbol = shortcutSymbol,
+        toFocusRequester = state.toFocusRequester
     )
 }
 

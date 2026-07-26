@@ -42,14 +42,14 @@ private class ScaleIndicationNode(
 
     override fun onAttach() {
         coroutineScope.launch {
-            var pressCount = 0
+            val presses = mutableSetOf<PressInteraction.Press>()
             interactionSource.interactions.collect { interaction ->
                 when (interaction) {
-                    is PressInteraction.Press -> pressCount++
-                    is PressInteraction.Release -> pressCount--
-                    is PressInteraction.Cancel -> pressCount--
+                    is PressInteraction.Press -> presses.add(interaction)
+                    is PressInteraction.Release -> presses.remove(interaction.press)
+                    is PressInteraction.Cancel -> presses.remove(interaction.press)
                 }
-                val pressed = pressCount > 0
+                val pressed = presses.isNotEmpty()
                 launch {
                     scale.animateTo(
                         if (pressed) 0.97f else 1f,

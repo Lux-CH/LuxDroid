@@ -177,8 +177,8 @@ fun MainNavigationScreen(
         ViewMode.Search -> 225.dp
         ViewMode.Stops -> max(135.dp, statusInset + 75.dp)
     }
-    val headerHeight by animateDpAsState(targetHeaderHeight, LuxSprings.springFor<Dp>(0.4, 0.85), label = "headerHeight")
-    val headerCornerRaw by animateDpAsState(if (compactStops) 0.dp else LuxShapes.r40, LuxSprings.springFor<Dp>(0.4, 0.85), label = "headerCorner")
+    val headerHeight by animateDpAsState(targetHeaderHeight, LuxSprings.springFor<Dp>(0.4, 1.0), label = "headerHeight")
+    val headerCornerRaw by animateDpAsState(if (compactStops) 0.dp else LuxShapes.r40, LuxSprings.springFor<Dp>(0.4, 1.0), label = "headerCorner")
     val headerCorner = headerCornerRaw.coerceIn(0.dp, LuxShapes.r40)
     val animatedSearchOffset by animateDpAsState(searchBarOffset, LuxSprings.springFor<Dp>(0.4, 0.85), label = "searchBarOffset")
 
@@ -481,8 +481,13 @@ fun MainNavigationScreen(
                 AnimatedContent(
                     targetState = viewMode,
                     transitionSpec = {
-                        IosTransitions.contentSwapEnter(LuxSprings.springFor(0.5, 0.85)) togetherWith
-                            IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 0.85))
+                        if (initialState == ViewMode.Home && targetState == ViewMode.Stops) {
+                            androidx.compose.animation.fadeIn(LuxSprings.springFor(0.5, 1.0)) togetherWith
+                                IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 1.0))
+                        } else {
+                            IosTransitions.contentSwapEnter(LuxSprings.springFor(0.5, 0.85)) togetherWith
+                                IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 0.85))
+                        }
                     },
                     label = "modeContent"
                 ) { mode ->

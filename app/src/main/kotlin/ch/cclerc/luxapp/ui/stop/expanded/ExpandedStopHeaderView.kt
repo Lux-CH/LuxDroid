@@ -227,9 +227,9 @@ private fun DatePickerButton(
             Text(
                 text = formattedBoardDate(selectedDate),
                 style = LuxTheme.type.footnote,
-                color = colors.label
+                color = LuxTheme.accent
             )
-            SFSymbol(name = "calendar", size = 13.sp, color = colors.label)
+            SFSymbol(name = "calendar", size = 13.sp, color = LuxTheme.accent)
         }
 
         if (expanded) {

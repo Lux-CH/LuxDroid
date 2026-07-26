@@ -89,7 +89,8 @@ fun TripsSearchHeaderView(
     viewModel: TripsSearchViewModel,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
-    shortcutSymbol: (SearchResult) -> String? = { null }
+    shortcutSymbol: (SearchResult) -> String? = { null },
+    toFocusRequester: androidx.compose.ui.focus.FocusRequester? = null
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
@@ -286,6 +287,7 @@ fun TripsSearchHeaderView(
                     onRemoveTag = { viewModel.removeToLocation() },
                     onFocused = { viewModel.setActiveSearchField(SearchField.TO) },
                     shortcutSymbol = shortcutSymbol,
+                    focusRequester = toFocusRequester,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
