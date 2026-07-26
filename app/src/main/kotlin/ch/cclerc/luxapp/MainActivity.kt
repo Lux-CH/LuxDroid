@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
         incomingUri.value = intent?.data
         setContent {
             LuxTheme {
+                StatusBarAppearance()
                 AppChrome(
                     destinationContent = { destination -> DestinationRenderer(destination) }
                 ) {
@@ -433,5 +434,17 @@ private fun DestinationRenderer(destination: LuxDestination) {
         is LuxDestination.Placeholder -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(destination.label)
         }
+    }
+}
+
+@Composable
+private fun StatusBarAppearance() {
+    val view = androidx.compose.ui.platform.LocalView.current
+    val isDark = LuxTheme.isDark
+    androidx.compose.runtime.SideEffect {
+        val activity = view.context as? ComponentActivity ?: return@SideEffect
+        val controller = androidx.core.view.WindowCompat.getInsetsController(activity.window, view)
+        controller.isAppearanceLightStatusBars = !isDark
+        controller.isAppearanceLightNavigationBars = !isDark
     }
 }

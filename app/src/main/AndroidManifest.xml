@@ -10,7 +10,7 @@
     <application
         android:name=".LuxApplication"
         android:label="Lux"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.LuxDroid"
         android:supportsRtl="true">
 

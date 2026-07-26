@@ -5,7 +5,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,34 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 private val SheetSpring: SpringSpec<Float> = LuxSprings.springFor(0.5, 1.0)
+
+private fun Modifier.consumeAllPointerInput(key: Any?): Modifier = pointerInput(key) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Main)
+            event.changes.forEach { change ->
+                if (change.pressed || change.previousPressed) change.consume()
+            }
+        }
+    }
+}
+
+private fun Modifier.scrimGestures(key: Any?, onTap: () -> Unit): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = true).consume()
+        var travel = 0f
+        var released = false
+        while (!released) {
+            val event = awaitPointerEvent(PointerEventPass.Main)
+            event.changes.forEach { change ->
+                travel += (change.position - change.previousPosition).getDistance()
+                change.consume()
+            }
+            released = event.changes.all { !it.pressed }
+        }
+        if (travel <= viewConfiguration.touchSlop) onTap()
+    }
+}
 
 @Composable
 fun SheetHost(controller: SheetController, modifier: Modifier = Modifier) {
@@ -217,11 +246,9 @@ private fun SheetLayer(
                         .coerceIn(0f, 1f)
                     drawRect(Color.Black.copy(alpha = 0.20f * reveal))
                 }
-                .pointerInput(request) {
-                    detectTapGestures {
-                        if (request.interactiveDismiss) {
-                            onDismissRequest()
-                        }
+                .scrimGestures(request) {
+                    if (request.interactiveDismiss) {
+                        onDismissRequest()
                     }
                 }
         )

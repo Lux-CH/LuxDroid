@@ -14,16 +14,15 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -183,11 +182,7 @@ private fun GlossyFill(fill: Color, shape: Shape, highlightAlpha: Float) {
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer {
-                compositingStrategy = CompositingStrategy.Offscreen
-                clip = true
-                this.shape = shape
-            }
+            .clip(shape)
             .background(fill)
             .drawWithContent {
                 drawContent()
@@ -209,11 +204,7 @@ fun WaitingTimeView(seconds: Int, modifier: Modifier = Modifier) {
         Box(
             Modifier
                 .matchParentSize()
-                .graphicsLayer {
-                    compositingStrategy = CompositingStrategy.Offscreen
-                    clip = true
-                    shape = RectangleShape
-                }
+                .clip(RectangleShape)
                 .background(Color(0xFF808080).copy(alpha = 0.15f))
                 .drawWithContent {
                     drawContent()

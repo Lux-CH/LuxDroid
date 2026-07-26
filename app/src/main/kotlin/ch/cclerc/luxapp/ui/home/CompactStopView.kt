@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -47,6 +48,9 @@ import java.time.Instant
 
 private val DISTANT_FUTURE: Instant = Instant.ofEpochSecond(64_092_211_200L)
 
+private val ROUTE_ROW_HEIGHT = 70.dp
+private val ROUTE_ROW_DIVIDER = 0.5.dp
+
 @Composable
 fun CompactStopView(
     stop: SearchResult,
@@ -78,6 +82,7 @@ fun CompactStopView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 54.dp)
                         .padding(horizontal = 25.dp)
                         .padding(top = 20.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -123,6 +128,7 @@ fun CompactStopView(
             Row(
                 Modifier
                     .fillMaxWidth()
+                    .height(ROUTE_ROW_HEIGHT * maxGroupsToShow)
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
@@ -247,6 +253,7 @@ private fun RouteGroupView(
     Column(
         Modifier
             .fillMaxWidth()
+            .height(if (isLastRoute) ROUTE_ROW_HEIGHT else ROUTE_ROW_HEIGHT + ROUTE_ROW_DIVIDER)
             .drawBehind {
                 drawRect(
                     brush = Brush.linearGradient(
@@ -266,21 +273,21 @@ private fun RouteGroupView(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(70.dp),
+                .height(ROUTE_ROW_HEIGHT),
             contentAlignment = Alignment.BottomCenter
         ) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(70.dp)
+                    .height(ROUTE_ROW_HEIGHT)
             ) { page ->
                 val group = groups.getOrNull(page)
                 if (group != null && group.stopTimes.isNotEmpty()) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(70.dp)
+                            .height(ROUTE_ROW_HEIGHT)
                             .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -304,7 +311,7 @@ private fun RouteGroupView(
         if (!isLastRoute) {
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = 16.dp),
-                thickness = 0.5.dp,
+                thickness = ROUTE_ROW_DIVIDER,
                 color = colors.separator
             )
         }
