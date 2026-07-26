@@ -250,6 +250,16 @@ internal fun LuxWheelPicker(
             }
     }
 
+    LaunchedEffect(state) {
+        var last = centerIndex
+        snapshotFlow { centerIndex }.collect { index ->
+            if (index != last && state.isScrollInProgress) {
+                HapticFeedback.selectionChanged()
+            }
+            last = index
+        }
+    }
+
     LaunchedEffect(selectedIndex) {
         if (!state.isScrollInProgress && centerIndex != selectedIndex) {
             state.animateScrollToItem(selectedIndex.coerceIn(items.indices))
@@ -271,28 +281,25 @@ internal fun LuxWheelPicker(
         ) {
             items(padCount) { Spacer(Modifier.height(WHEEL_ITEM_HEIGHT)) }
             items(items.size) { index ->
-                val distance = abs(index - centerIndex)
-                val itemAlpha = when (distance) {
-                    0 -> 1f
-                    1 -> 0.55f
-                    else -> 0.3f
-                }
-                val itemScale = when (distance) {
-                    0 -> 1f
-                    1 -> 0.9f
-                    else -> 0.82f
-                }
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(WHEEL_ITEM_HEIGHT)
                         .graphicsLayer {
-                            alpha = itemAlpha
-                            scaleX = itemScale
-                            scaleY = itemScale
+                            val f = (index - state.firstVisibleItemIndex) -
+                                state.firstVisibleItemScrollOffset / itemHeightPx
+                            val half = (WHEEL_VISIBLE_ITEMS - 1) / 2f
+                            val t = (f / (half + 0.5f)).coerceIn(-1f, 1f)
+                            rotationX = -t * 52f
+                            cameraDistance = 14f * density.density
+                            translationY = -t * t * t * itemHeightPx * 0.28f
+                            val fade = kotlin.math.cos(t * 1.35f).coerceAtLeast(0f)
+                            alpha = 0.18f + 0.82f * fade * fade
+                            scaleX = 0.88f + 0.12f * fade
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    val distance = abs(index - centerIndex)
                     Text(
                         text = items[index],
                         style = LuxTheme.type.body,
