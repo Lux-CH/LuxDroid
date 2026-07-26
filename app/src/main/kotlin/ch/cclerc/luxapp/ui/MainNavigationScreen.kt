@@ -473,47 +473,45 @@ fun MainNavigationScreen(
                 }
             }
 
+            val cardTopPadding by animateDpAsState(
+                when {
+                    compactStops -> 0.dp
+                    viewMode == ViewMode.Search -> 24.dp
+                    viewMode == ViewMode.Home -> 22.dp
+                    else -> 18.dp
+                },
+                LuxSprings.springFor<Dp>(0.4, 1.0),
+                label = "cardTopPadding"
+            )
+            val cardFill by animateColorAsState(
+                when {
+                    viewMode == ViewMode.Search -> Color.Transparent
+                    isDark -> colors.secondarySystemBackground.copy(alpha = 0.7f)
+                    else -> Color.White
+                },
+                label = "cardFill"
+            )
             Box(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .padding(top = cardTopPadding.coerceAtLeast(0.dp))
+                    .let {
+                        if (viewMode == ViewMode.Search) it
+                        else it.iosShadow(Color.Black.copy(alpha = 0.05f), 8.dp, (-4).dp, LuxShapes.topCorners(LuxShapes.r38))
+                    }
+                    .clip(LuxShapes.topCorners(if (compactStops) 0.dp else LuxShapes.r38))
+                    .background(cardFill)
             ) {
                 AnimatedContent(
                     targetState = viewMode,
                     transitionSpec = {
-                        if (initialState == ViewMode.Home && targetState == ViewMode.Stops) {
-                            androidx.compose.animation.fadeIn(LuxSprings.springFor(0.5, 1.0)) togetherWith
-                                IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 1.0))
-                        } else {
-                            IosTransitions.contentSwapEnter(LuxSprings.springFor(0.5, 0.85)) togetherWith
-                                IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 0.85))
-                        }
+                        IosTransitions.contentSwapEnter(LuxSprings.springFor(0.5, 0.85)) togetherWith
+                            IosTransitions.contentSwapExit(LuxSprings.springFor(0.5, 0.85))
                     },
                     label = "modeContent"
                 ) { mode ->
-                    val contentFill = when {
-                        mode == ViewMode.Search -> Color.Transparent
-                        isDark -> colors.secondarySystemBackground.copy(alpha = 0.7f)
-                        else -> Color.White
-                    }
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .padding(
-                                top = when {
-                                    compactStops -> 0.dp
-                                    mode == ViewMode.Search -> 24.dp
-                                    mode == ViewMode.Home -> 22.dp
-                                    else -> 18.dp
-                                }
-                            )
-                            .let {
-                                if (mode == ViewMode.Search) it
-                                else it.iosShadow(Color.Black.copy(alpha = 0.05f), 8.dp, (-4).dp, LuxShapes.topCorners(LuxShapes.r38))
-                            }
-                            .clip(LuxShapes.topCorners(if (compactStops) 0.dp else LuxShapes.r38))
-                            .background(contentFill)
-                    ) {
+                    Box(Modifier.fillMaxSize()) {
                         when (mode) {
                             ViewMode.Home -> homeContent()
                             ViewMode.Stops -> Box(
