@@ -24,11 +24,13 @@ fun getTrackType(track: String): String =
 fun ExpandedGroupView(
     group: GroupedStopTime,
     animateIn: Boolean,
+    entranceTracker: EntranceTracker,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onSelectLine: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LuxTheme.colors
+    val playEntrance = rememberEntrancePlayback(entranceTracker, "group|${group.id}")
     val first = group.stopTimes.firstOrNull()
 
     val displayTrack = group.stopTimes
@@ -73,6 +75,7 @@ fun ExpandedGroupView(
         DepartureGrid(
             group = group,
             animateIn = animateIn,
+            playEntrance = playEntrance,
             onOpenTrip = onOpenTrip,
             onSelectLine = onSelectLine
         )
@@ -83,6 +86,7 @@ fun ExpandedGroupView(
 private fun DepartureGrid(
     group: GroupedStopTime,
     animateIn: Boolean,
+    playEntrance: Boolean,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onSelectLine: (String) -> Unit
 ) {
@@ -104,6 +108,7 @@ private fun DepartureGrid(
                         group = group,
                         index = rowIndex * 2 + columnIndex,
                         animateIn = animateIn,
+                        playEntrance = playEntrance,
                         onOpenTrip = onOpenTrip,
                         onSelectLine = onSelectLine,
                         modifier = Modifier.weight(1f)

@@ -38,6 +38,8 @@ fun RouteGroupView(
     currentPage: Int,
     onPageChanged: (String, Int) -> Unit,
     animateIn: Boolean,
+    playEntrance: Boolean,
+    entranceTracker: EntranceTracker,
     isLastRoute: Boolean,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onSelectLine: (String) -> Unit,
@@ -60,7 +62,7 @@ fun RouteGroupView(
     }
 
     val dividerProgress by animateFloatAsState(
-        targetValue = if (animateIn) 1f else 0f,
+        targetValue = if (animateIn || !playEntrance) 1f else 0f,
         animationSpec = tween(durationMillis = 500, delayMillis = 300),
         label = "route-divider"
     )
@@ -93,6 +95,7 @@ fun RouteGroupView(
                         ExpandedGroupView(
                             group = group,
                             animateIn = animateIn,
+                            entranceTracker = entranceTracker,
                             onOpenTrip = onOpenTrip,
                             onSelectLine = onSelectLine
                         )
@@ -103,7 +106,7 @@ fun RouteGroupView(
             PaginationDots(
                 groupsCount = groups.size,
                 currentPage = pagerState.currentPage,
-                animateIn = animateIn
+                animateIn = animateIn || !playEntrance
             )
         }
 

@@ -240,7 +240,7 @@ object SymbolMap {
         "scooter" to remix("\uEC78"),
         "shippingbox" to f7("shippingbox"),
         "shippingbox.fill" to f7("shippingbox_fill"),
-        "signpost.right" to remix("\uF48D"),
+        "signpost.right" to remix("\uF48C"),
         "signpost.right.fill" to remix("\uF48C"),
         "slider.horizontal.3" to f7("slider_horizontal_3"),
         "shield.fill" to f7("shield_fill"),

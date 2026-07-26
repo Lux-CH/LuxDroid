@@ -24,6 +24,7 @@ import ch.cclerc.luxapp.viewmodel.StopViewModel
 fun RouteGroupsView(
     viewModel: StopViewModel,
     animateIn: Boolean,
+    entranceTracker: EntranceTracker,
     maxGroupsToShow: Int,
     boardMode: BoardMode,
     isRefreshing: Boolean,
@@ -49,24 +50,33 @@ fun RouteGroupsView(
                 itemsIndexed(shownRoutes) { index, routeName ->
                     val groups = viewModel.routeGroups[routeName]
                     if (!groups.isNullOrEmpty()) {
+                        val playEntrance = rememberEntrancePlayback(entranceTracker, "route|$routeName")
                         RouteGroupView(
                             routeName = routeName,
                             groups = groups,
                             currentPage = viewModel.currentPages[routeName] ?: 0,
                             onPageChanged = { name, page -> viewModel.currentPages[name] = page },
                             animateIn = animateIn,
+                            playEntrance = playEntrance,
+                            entranceTracker = entranceTracker,
                             isLastRoute = routeName == shownRoutes.lastOrNull(),
                             onOpenTrip = onOpenTrip,
                             onSelectLine = { name -> viewModel.userSelectedLine(name) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .staggeredEntrance(
-                                    index = index,
-                                    visible = animateIn,
-                                    delayPerItemMs = 100,
-                                    baseDelayMs = 200,
-                                    fromOffsetY = 20.dp,
-                                    spec = LuxSprings.springFor(0.6, 0.75)
+                                .then(
+                                    if (playEntrance) {
+                                        Modifier.staggeredEntrance(
+                                            index = index,
+                                            visible = animateIn,
+                                            delayPerItemMs = 100,
+                                            baseDelayMs = 200,
+                                            fromOffsetY = 20.dp,
+                                            spec = LuxSprings.springFor(0.6, 0.75)
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
                                 )
                         )
                     }

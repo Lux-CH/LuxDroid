@@ -22,6 +22,7 @@ import ch.cclerc.luxapp.domain.TripOption
 import ch.cclerc.luxapp.ui.anim.IosTransitions
 import ch.cclerc.luxapp.ui.stop.expanded.BoardMode
 import ch.cclerc.luxapp.ui.stop.expanded.ExpandedStopHeaderView
+import ch.cclerc.luxapp.ui.stop.expanded.EntranceTracker
 import ch.cclerc.luxapp.ui.stop.expanded.RouteGroupsView
 import ch.cclerc.luxapp.ui.stop.expanded.StopContentEmptyView
 import ch.cclerc.luxapp.ui.stop.expanded.StopContentLoadingView
@@ -61,6 +62,7 @@ fun ExpandedStopView(
     var isChangingContent by remember(stop.id) { mutableStateOf(false) }
     var showContent by remember(stop.id) { mutableStateOf(true) }
     var isRefreshing by remember(stop.id) { mutableStateOf(false) }
+    val entranceTracker = remember(stop.id, contentTransitionId) { EntranceTracker() }
 
     DisposableEffect(viewModel) {
         viewModel.startMonitoring()
@@ -144,6 +146,7 @@ fun ExpandedStopView(
                         StopContentState.Content -> RouteGroupsView(
                             viewModel = viewModel,
                             animateIn = animateIn,
+                            entranceTracker = entranceTracker,
                             maxGroupsToShow = maxGroupsToShow,
                             boardMode = boardMode,
                             isRefreshing = isRefreshing,

@@ -30,8 +30,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +85,10 @@ fun StopCallout(
 
     val tailCenterX = remember { mutableFloatStateOf(0f) }
     val tailPointsDown = remember { mutableStateOf(true) }
+    val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        entrance.animateTo(1f, ch.cclerc.luxapp.ui.theme.LuxSprings.springFor(0.35, 0.75))
+    }
 
     Box(modifier.fillMaxSize()) {
         Box(
@@ -93,13 +100,23 @@ fun StopCallout(
         Layout(
             modifier = Modifier.matchParentSize(),
             content = {
-                StopCalloutCard(
-                    place = place,
-                    color = color,
-                    onOtherDepartures = onOtherDepartures,
-                    tailCenterX = { tailCenterX.floatValue },
-                    tailPointsDown = { tailPointsDown.value }
-                )
+                Box(
+                    Modifier.graphicsLayer {
+                        val p = entrance.value
+                        scaleX = 0.6f + 0.4f * p
+                        scaleY = 0.6f + 0.4f * p
+                        alpha = p.coerceIn(0f, 1f)
+                        transformOrigin = TransformOrigin(0.5f, if (tailPointsDown.value) 1f else 0f)
+                    }
+                ) {
+                    StopCalloutCard(
+                        place = place,
+                        color = color,
+                        onOtherDepartures = onOtherDepartures,
+                        tailCenterX = { tailCenterX.floatValue },
+                        tailPointsDown = { tailPointsDown.value }
+                    )
+                }
             }
         ) { measurables, constraints ->
             val margin = StopCalloutScreenMargin.roundToPx()

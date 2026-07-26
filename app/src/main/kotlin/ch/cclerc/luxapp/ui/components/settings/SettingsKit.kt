@@ -47,7 +47,7 @@ fun SettingsCard(
     Column(
         modifier = modifier
             .clip(shape)
-            .background(colors.secondarySystemGroupedBackground, shape)
+            .background(colors.secondarySystemGroupedBackgroundElevated, shape)
             .border(0.5.dp, colors.hairline, shape)
     ) {
         content()

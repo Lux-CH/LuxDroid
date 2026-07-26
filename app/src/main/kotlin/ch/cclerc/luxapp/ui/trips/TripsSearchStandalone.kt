@@ -3,13 +3,13 @@ package ch.cclerc.luxapp.ui.trips
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
@@ -22,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -33,7 +35,9 @@ import ch.cclerc.luxapp.ui.SEARCH_DRAG_RESISTANCE
 import ch.cclerc.luxapp.ui.stretchedShift
 import ch.cclerc.luxapp.ui.components.KeyboardToolbar
 import ch.cclerc.luxapp.ui.components.KeyboardToolbarShortcut
+import ch.cclerc.luxapp.ui.theme.LuxShapes
 import ch.cclerc.luxapp.ui.theme.LuxTheme
+import ch.cclerc.luxapp.ui.theme.iosShadow
 import ch.cclerc.luxapp.viewmodel.SearchField
 import ch.cclerc.luxapp.viewmodel.TripsSearchViewModel
 import ch.cclerc.luxcom.model.SearchResult
@@ -103,23 +107,37 @@ fun TripsSearchStandalone(
                 )
             }
     ) {
-        Column(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy((-15).dp)
-        ) {
-            TripsSearchHeaderSlot(
-                state = remember(viewModel) { TripsSearchScreenState(viewModel) },
-                modifier = Modifier
+        Column(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
                     .fillMaxWidth()
-                    .padding(top = maxOf(statusInset - 8.dp, 48.dp)),
-                onBack = onDismiss,
-                shortcutSymbol = shortcutSymbol
-            )
+                    .height(225.dp)
+                    .iosShadow(
+                        Color.Black.copy(alpha = 0.05f),
+                        10.dp,
+                        5.dp,
+                        LuxShapes.bottomCorners(LuxShapes.r40)
+                    )
+                    .clip(LuxShapes.bottomCorners(LuxShapes.r40))
+                    .background(
+                        if (isDark) colors.secondarySystemBackground.copy(alpha = 0.7f) else Color.White
+                    )
+            ) {
+                TripsSearchHeaderSlot(
+                    state = remember(viewModel) { TripsSearchScreenState(viewModel) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = maxOf(statusInset - 8.dp, 48.dp)),
+                    onBack = onDismiss,
+                    shortcutSymbol = shortcutSymbol
+                )
+            }
 
             Box(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .padding(top = 24.dp)
                     .stretchedShift(dragOffset * SEARCH_DRAG_RESISTANCE)
             ) {
                 TripsSearchContentView(

@@ -78,6 +78,7 @@ fun DepartureTimeRow(
     group: GroupedStopTime,
     index: Int,
     animateIn: Boolean,
+    playEntrance: Boolean,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onSelectLine: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -120,14 +121,20 @@ fun DepartureTimeRow(
 
     Column(
         modifier = modifier
-            .staggeredEntrance(
-                index = index,
-                visible = animateIn,
-                delayPerItemMs = 50,
-                baseDelayMs = 100,
-                fromOffsetY = 0.dp,
-                fromScale = 0.9f,
-                spec = LuxSprings.Emphatic
+            .then(
+                if (playEntrance) {
+                    Modifier.staggeredEntrance(
+                        index = index,
+                        visible = animateIn,
+                        delayPerItemMs = 50,
+                        baseDelayMs = 100,
+                        fromOffsetY = 0.dp,
+                        fromScale = 0.9f,
+                        spec = LuxSprings.Emphatic
+                    )
+                } else {
+                    Modifier
+                }
             )
             .background(colors.secondarySystemBackground, RoundedCornerShape(LuxShapes.r8))
             .border(
