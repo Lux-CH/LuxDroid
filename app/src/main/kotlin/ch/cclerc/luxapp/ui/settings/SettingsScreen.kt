@@ -139,7 +139,7 @@ internal fun SettingsHeaderCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.secondarySystemGroupedBackground, shape)
+            .background(colors.secondarySystemGroupedBackgroundElevated, shape)
             .border(0.5.dp, colors.hairline, shape)
             .padding(vertical = 24.dp, horizontal = 20.dp)
     ) {
@@ -169,7 +169,7 @@ internal fun SettingsSubScreen(
     Column(
         modifier
             .fillMaxSize()
-            .background(colors.systemGroupedBackground)
+            .background(colors.systemGroupedBackgroundElevated)
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -262,7 +262,7 @@ private fun SettingsRootView(nav: SettingsNavigator, onClose: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(colors.systemGroupedBackground)
+            .background(colors.systemGroupedBackgroundElevated)
             .verticalScroll(rememberScrollState())
             .padding(top = 26.dp, bottom = 40.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)

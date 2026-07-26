@@ -94,9 +94,9 @@ fun RouteOptionsView(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        colors.systemBackground,
-                        colors.systemGroupedBackground.copy(alpha = 0.3f),
-                        colors.systemGroupedBackground
+                        colors.systemBackgroundElevated,
+                        colors.systemGroupedBackgroundElevated.copy(alpha = 0.3f),
+                        colors.systemGroupedBackgroundElevated
                     )
                 )
             )

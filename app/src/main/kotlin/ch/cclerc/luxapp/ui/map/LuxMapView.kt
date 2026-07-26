@@ -183,11 +183,11 @@ private fun GrantedUserLocationPuck(cameraState: CameraState) {
     val userLocationState = rememberUserLocationState(
         locationProvider = rememberDefaultLocationProvider()
     )
-    val blue = LuxTheme.colors.systemBlue
-    val puckColors = remember(blue) {
+    val accent = LuxTheme.accent
+    val puckColors = remember(accent) {
         LocationPuckColors(
-            dotFillColorCurrentLocation = blue,
-            dotFillColorOldLocation = blue,
+            dotFillColorCurrentLocation = accent,
+            dotFillColorOldLocation = accent,
             dotStrokeColor = Color.White,
             shadowColor = Color.Black.copy(alpha = 0.2f),
             accuracyStrokeColor = Color.Transparent,

@@ -167,38 +167,26 @@ fun ItineraryMapScreen(
                 }
             )
             WalkingDotLayer(walking = walking)
-        }
-
-        AnnotationOverlay(
-            items = vehicles,
-            projection = projector,
-            positionOf = { it.coordinate },
-            modifier = Modifier.matchParentSize(),
-            keyOf = { it.id }
-        ) { vehicle ->
-            VehicleMarker(routeShortName = vehicle.routeShortName, color = vehicle.color)
+            VehicleMarkerLayers(vehicles = vehicles)
         }
 
         popoverStop?.let { annotation ->
-            AnnotationOverlayItem(
+            StopCallout(
+                place = annotation.place,
+                color = annotation.color,
                 latitude = annotation.coordinate.latitude,
                 longitude = annotation.coordinate.longitude,
                 projection = projector,
-                modifier = Modifier.matchParentSize()
-            ) {
-                StopPopover(
-                    place = annotation.place,
-                    color = annotation.color,
-                    onOtherDepartures = {
-                        popoverStop = null
-                        onOpenExpandedStop(annotation.place)
-                    },
-                    onDismiss = {
-                        popoverStop = null
-                        onSheetVisibilityChange(true)
-                    }
-                )
-            }
+                modifier = Modifier.matchParentSize(),
+                onOtherDepartures = {
+                    popoverStop = null
+                    onOpenExpandedStop(annotation.place)
+                },
+                onDismiss = {
+                    popoverStop = null
+                    onSheetVisibilityChange(true)
+                }
+            )
         }
     }
 }

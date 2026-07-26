@@ -125,7 +125,7 @@ fun SymbolPickerGrid(
     Column(
         modifier
             .fillMaxSize()
-            .background(colors.systemBackground)
+            .background(colors.systemBackgroundElevated)
             .imePadding()
     ) {
         Row(
@@ -155,7 +155,7 @@ fun SymbolPickerGrid(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .background(colors.secondarySystemBackground, RoundedCornerShape(14.dp))
+                .background(colors.secondarySystemBackgroundElevated, RoundedCornerShape(14.dp))
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             SFSymbol(name = "magnifyingglass", size = 15.sp, color = colors.secondaryLabel)
@@ -194,7 +194,7 @@ fun SymbolPickerGrid(
                     modifier = Modifier
                         .aspectRatio(1f)
                         .background(
-                            if (isSelected) accent.copy(alpha = 0.15f) else colors.secondarySystemGroupedBackground,
+                            if (isSelected) accent.copy(alpha = 0.15f) else colors.secondarySystemGroupedBackgroundElevated,
                             shape
                         )
                         .border(

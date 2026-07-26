@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -61,7 +62,8 @@ fun LocationTagView(
             )
             .background(fillBase.copy(alpha = fillBase.alpha * 0.4f), shape)
             .border(0.75.dp, colors.label.copy(alpha = 0.15f), shape)
-            .padding(horizontal = 15.dp, vertical = 8.dp),
+            .padding(horizontal = 15.dp)
+            .height(34.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -73,37 +75,52 @@ fun LocationTagView(
                     .border(0.5.dp, iconStyle.color.copy(alpha = 0.35f), RoundedCornerShape(50)),
                 contentAlignment = Alignment.Center
             ) {
-                SFSymbol(name = iconStyle.symbolName, size = 10.sp, color = iconStyle.color)
+                SFSymbol(
+                    name = iconStyle.symbolName,
+                    size = 10.sp,
+                    color = iconStyle.color,
+                    lineHeight = 10.sp
+                )
             }
         }
 
-        Text(
-            text = location.displayName,
-            fontSize = 15.sp,
-            lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = colors.label,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            style = LuxTheme.type.subheadline.copy(
-                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                lineHeightStyle = LineHeightStyle(
-                    alignment = LineHeightStyle.Alignment.Center,
-                    trim = LineHeightStyle.Trim.Both
+        Box(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .height(18.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = location.displayName,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = LuxTheme.type.subheadline.copy(
+                    fontSize = 15.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.label,
+                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    lineHeightStyle = LineHeightStyle(
+                        alignment = LineHeightStyle.Alignment.Center,
+                        trim = LineHeightStyle.Trim.Both
+                    )
                 )
-            ),
-            modifier = Modifier.weight(1f, fill = false)
-        )
+            )
+        }
 
         Box(
             modifier = Modifier
                 .clip(CircleShape)
                 .clickable(interactionSource = null, indication = PlainIndication) { onRemove() }
-                .padding(4.dp)
-                .size(15.dp),
+                .size(18.dp),
             contentAlignment = Alignment.Center
         ) {
-            SFSymbol(name = "xmark.circle.fill", size = 15.sp, color = colors.systemGray)
+            SFSymbol(
+                name = "xmark.circle.fill",
+                size = 15.sp,
+                color = colors.systemGray,
+                lineHeight = 15.sp
+            )
         }
     }
 }

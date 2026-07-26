@@ -2,48 +2,40 @@ package ch.cclerc.luxapp.core
 
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import ch.cclerc.luxapp.R
 
-@OptIn(ExperimentalTextApi::class)
+private val Framework7FontFamily = FontFamily(Font(R.font.framework7_icons))
+private val RemixFontFamily = FontFamily(Font(R.font.remixicon))
+
 @Composable
 fun SFSymbol(
     name: String,
     size: TextUnit,
     color: Color,
     weight: Int = 500,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lineHeight: TextUnit = TextUnit.Unspecified
 ) {
     val symbol = SymbolMap.glyphFor(name)
-    val opticalSize = size.value.coerceIn(20f, 48f)
-    val fontFamily = remember(symbol.fill, weight, opticalSize) {
-        FontFamily(
-            Font(
-                R.font.material_symbols_rounded,
-                variationSettings = FontVariation.Settings(
-                    FontVariation.Setting("FILL", symbol.fill),
-                    FontVariation.Setting("wght", weight.toFloat()),
-                    FontVariation.Setting("opsz", opticalSize)
-                )
-            )
-        )
+    val fontFamily = when (symbol.font) {
+        IconFont.F7 -> Framework7FontFamily
+        IconFont.REMIX -> RemixFontFamily
     }
     BasicText(
-        text = symbol.glyph,
+        text = symbol.text,
         style = TextStyle(
             fontFamily = fontFamily,
             fontSize = size,
+            lineHeight = lineHeight,
             color = color,
             platformStyle = PlatformTextStyle(includeFontPadding = false),
             lineHeightStyle = LineHeightStyle(

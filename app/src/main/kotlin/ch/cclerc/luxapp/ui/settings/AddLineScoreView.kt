@@ -41,7 +41,7 @@ fun AddLineScoreView(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier
             .fillMaxSize()
-            .background(colors.systemGroupedBackground)
+            .background(colors.systemGroupedBackgroundElevated)
             .imePadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -70,7 +70,6 @@ fun CustomTabBar(
             .navigationBarsPadding()
             .padding(horizontal = 24.dp)
             .padding(bottom = 8.dp)
-            .fillMaxWidth()
             .height(54.dp)
             .iosShadow(
                 color = Color.Black.copy(alpha = if (isDark) 0.3f else 0.15f),
@@ -104,7 +103,7 @@ fun CustomTabBar(
         }
         Row(
             Modifier
-                .fillMaxSize()
+                .fillMaxHeight()
                 .padding(8.dp),
             horizontalArrangement = Arrangement.Center
         ) {
@@ -112,9 +111,7 @@ fun CustomTabBar(
                 val selected = tab == selectedTab
                 Row(
                     Modifier
-                        .weight(1f, fill = false)
-                        .widthIn(max = 125.dp)
-                        .fillMaxWidth()
+                        .width(125.dp)
                         .fillMaxHeight()
                         .onGloballyPositioned { coords ->
                             containerCoords?.let {

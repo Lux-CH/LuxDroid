@@ -109,9 +109,9 @@ fun ShortcutEditorView(
 
     val background = Brush.verticalGradient(
         listOf(
-            colors.systemBackground,
-            colors.systemGroupedBackground.copy(alpha = 0.3f),
-            colors.systemGroupedBackground
+            colors.systemBackgroundElevated,
+            colors.systemGroupedBackgroundElevated.copy(alpha = 0.3f),
+            colors.systemGroupedBackgroundElevated
         )
     )
 
@@ -549,7 +549,7 @@ internal fun LocationSearchSheet(
     Column(
         modifier
             .fillMaxSize()
-            .background(colors.systemBackground)
+            .background(colors.systemBackgroundElevated)
             .imePadding()
     ) {
         Row(
@@ -579,7 +579,7 @@ internal fun LocationSearchSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .background(colors.secondarySystemBackground, RoundedCornerShape(14.dp))
+                .background(colors.secondarySystemBackgroundElevated, RoundedCornerShape(14.dp))
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             SFSymbol(name = "magnifyingglass", size = 15.sp, color = colors.secondaryLabel)

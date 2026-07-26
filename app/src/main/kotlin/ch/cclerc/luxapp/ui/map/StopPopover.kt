@@ -1,12 +1,17 @@
 package ch.cclerc.luxapp.ui.map
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -18,21 +23,21 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.window.PopupProperties
 import ch.cclerc.luxapp.core.SFSymbol
 import ch.cclerc.luxapp.domain.ConnectionService
 import ch.cclerc.luxapp.domain.rememberConnections
@@ -47,51 +52,119 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 val StopPopoverMinWidth = 250.dp
 
 private const val STOP_POPOVER_NAVIGATION_DELAY_MS = 150L
-private val StopPopoverGap = 12.dp
+private val StopPopoverMaxWidth = 280.dp
+private val StopCalloutTailHeight = 12.dp
+private val StopCalloutTailWidth = 26.dp
+private val StopCalloutTailOverlap = 2.dp
+private val StopCalloutScreenMargin = 12.dp
+private val StopCalloutDotInset = 10.dp
+private val StopCalloutGap = 4.dp
 
-private class StopPopoverPositionProvider(private val gapPx: Int) : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect,
-        windowSize: IntSize,
-        layoutDirection: LayoutDirection,
-        popupContentSize: IntSize
-    ): IntOffset {
-        val centerX = anchorBounds.left + anchorBounds.width / 2
-        val maxX = max(0, windowSize.width - popupContentSize.width)
-        val x = (centerX - popupContentSize.width / 2).coerceIn(0, maxX)
+@Composable
+fun StopCallout(
+    place: Place,
+    color: Color,
+    latitude: Double,
+    longitude: Double,
+    projection: MapProjector,
+    onOtherDepartures: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(onBack = onDismiss)
 
-        val above = anchorBounds.top - gapPx - popupContentSize.height
-        val below = anchorBounds.bottom + gapPx
-        val maxY = max(0, windowSize.height - popupContentSize.height)
-        val y = if (above >= 0) above else min(below, maxY)
+    val tailCenterX = remember { mutableFloatStateOf(0f) }
+    val tailPointsDown = remember { mutableStateOf(true) }
 
-        return IntOffset(x, y)
+    Box(modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } }
+        )
+
+        Layout(
+            modifier = Modifier.matchParentSize(),
+            content = {
+                StopCalloutCard(
+                    place = place,
+                    color = color,
+                    onOtherDepartures = onOtherDepartures,
+                    tailCenterX = { tailCenterX.floatValue },
+                    tailPointsDown = { tailPointsDown.value }
+                )
+            }
+        ) { measurables, constraints ->
+            val margin = StopCalloutScreenMargin.roundToPx()
+            val available = (constraints.maxWidth - margin * 2)
+                .coerceIn(0, StopPopoverMaxWidth.roundToPx())
+            val placeable = measurables.first().measure(Constraints(maxWidth = available))
+            val width = constraints.maxWidth
+            val height = constraints.maxHeight
+            val gapPx = (StopCalloutDotInset + StopCalloutGap).toPx()
+            val cornerPx = LuxShapes.r16.toPx() + StopCalloutTailWidth.toPx() / 4f
+
+            layout(width, height) {
+                val screen = projection(latitude, longitude) ?: return@layout
+
+                val minX = margin.toFloat()
+                val maxX = max(minX, (width - placeable.width - margin).toFloat())
+                val x = (screen.x - placeable.width / 2f).coerceIn(minX, maxX)
+
+                val above = screen.y - gapPx - placeable.height
+                val pointsDown = above >= margin
+                val y = if (pointsDown) above else screen.y + gapPx
+
+                tailPointsDown.value = pointsDown
+                tailCenterX.floatValue = (screen.x - x).coerceIn(
+                    cornerPx.coerceAtMost(placeable.width / 2f),
+                    (placeable.width - cornerPx).coerceAtLeast(placeable.width / 2f)
+                )
+
+                placeable.place(x.roundToInt(), y.roundToInt())
+            }
+        }
     }
 }
 
 @Composable
-fun StopPopover(
+private fun StopCalloutCard(
     place: Place,
     color: Color,
     onOtherDepartures: () -> Unit,
-    onDismiss: () -> Unit
+    tailCenterX: () -> Float,
+    tailPointsDown: () -> Boolean
 ) {
-    val gapPx = with(androidx.compose.ui.platform.LocalDensity.current) { StopPopoverGap.roundToPx() }
-    val positionProvider = remember(gapPx) { StopPopoverPositionProvider(gapPx) }
+    val surface = LuxTheme.colors.secondarySystemBackgroundElevated
 
-    Popup(
-        popupPositionProvider = positionProvider,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true)
+    Column(
+        modifier = Modifier.drawBehind {
+            val tailHeight = StopCalloutTailHeight.toPx()
+            val overlap = StopCalloutTailOverlap.toPx()
+            val halfWidth = StopCalloutTailWidth.toPx() / 2f
+            val centerX = tailCenterX()
+            val down = tailPointsDown()
+            val baseY = if (down) size.height - tailHeight - overlap else tailHeight + overlap
+            val tipY = if (down) size.height else 0f
+            val path = Path().apply {
+                moveTo(centerX - halfWidth, baseY)
+                lineTo(centerX + halfWidth, baseY)
+                lineTo(centerX, tipY)
+                close()
+            }
+            drawPath(path, surface)
+        }
     ) {
+        Spacer(Modifier.height(StopCalloutTailHeight))
         StopPopoverCard(place = place, color = color, onOtherDepartures = onOtherDepartures)
+        Spacer(Modifier.height(StopCalloutTailHeight))
     }
 }
 
@@ -183,7 +256,7 @@ fun StopPopoverCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp),
-            shape = RoundedCornerShape(LuxShapes.r12),
+            shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = color,
                 contentColor = buttonTextColor

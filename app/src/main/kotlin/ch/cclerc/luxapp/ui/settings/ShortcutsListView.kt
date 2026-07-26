@@ -245,7 +245,7 @@ private fun ShortcutRow(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { translationX = offsetX.value }
-                .background(colors.secondarySystemGroupedBackground)
+                .background(colors.secondarySystemGroupedBackgroundElevated)
                 .pointerInput(shortcut.id) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { onDragStart() },

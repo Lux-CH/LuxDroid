@@ -141,7 +141,7 @@ private fun ThemeSelectionCard(
                 scaleY = scale
             }
             .clip(shape)
-            .background(colors.secondarySystemGroupedBackground, shape)
+            .background(colors.secondarySystemGroupedBackgroundElevated, shape)
             .border(if (isSelected) 2.dp else 0.5.dp, if (isSelected) option.color else colors.hairline, shape)
             .scaleClickable(haptic = false, onClick = onClick)
             .padding(16.dp)

@@ -494,7 +494,14 @@ fun MainNavigationScreen(
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .padding(top = if (compactStops || mode == ViewMode.Search) 0.dp else 18.dp)
+                            .padding(
+                                top = when {
+                                    compactStops -> 0.dp
+                                    mode == ViewMode.Search -> 24.dp
+                                    mode == ViewMode.Home -> 22.dp
+                                    else -> 18.dp
+                                }
+                            )
                             .let {
                                 if (mode == ViewMode.Search) it
                                 else it.iosShadow(Color.Black.copy(alpha = 0.05f), 8.dp, (-4).dp, LuxShapes.topCorners(LuxShapes.r38))

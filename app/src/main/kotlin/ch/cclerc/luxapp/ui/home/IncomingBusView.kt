@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -29,6 +30,14 @@ import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxcom.geo.StopGrouping
 import ch.cclerc.luxcom.model.TransportationMode
 import java.time.Instant
+
+private val tightLineStyle = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    lineHeightStyle = LineHeightStyle(
+        alignment = LineHeightStyle.Alignment.Center,
+        trim = LineHeightStyle.Trim.Both
+    )
+)
 
 val TransportationMode.displayName: String
     get() = when (this) {
@@ -183,19 +192,24 @@ fun IncomingBusView(
                             text = parsed.city,
                             fontFamily = InterFontFamily,
                             fontSize = 11.sp,
+                            lineHeight = 11.sp,
                             fontWeight = if (isCityReleavant) FontWeight.SemiBold else FontWeight.Medium,
-                            color = colors.secondaryLabel
+                            color = colors.secondaryLabel,
+                            style = tightLineStyle
                         )
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 1.dp)
                         ) {
                             Text(
                                 text = parsed.location.shortnameCapitalize,
                                 fontFamily = InterFontFamily,
                                 fontSize = 17.sp,
+                                lineHeight = 17.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = colors.label
+                                color = colors.label,
+                                style = tightLineStyle
                             )
                             if (!displayTrack.isNullOrEmpty()) {
                                 TrackBadge(displayTrack, Modifier.padding(top = 2.25.dp))
