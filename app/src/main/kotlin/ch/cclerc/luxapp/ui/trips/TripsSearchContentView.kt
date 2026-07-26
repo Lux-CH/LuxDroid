@@ -181,7 +181,7 @@ private fun TripResultsList(
     val firstTripIndex = directs.size + if (hasDivider) 1 else 0
 
     LaunchedEffect(trips, animateIn) {
-        if (trips.isNotEmpty() && animateIn) {
+        if (trips.isNotEmpty() && animateIn && directs.isEmpty()) {
             listState.animateScrollToItem(firstTripIndex)
         }
     }
