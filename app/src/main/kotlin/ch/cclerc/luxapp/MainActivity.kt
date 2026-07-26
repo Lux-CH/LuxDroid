@@ -103,10 +103,11 @@ class MainActivity : ComponentActivity() {
                         settingsSheet = {
                             SettingsScreen(onClose = { sheetController.dismiss() })
                         },
-                        searchHeader = {
+                        searchHeader = { onBack ->
                             TripsSearchHeaderSlot(
                                 state = tripsSearchState,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                onBack = onBack
                             )
                         },
                         searchContent = {
@@ -416,7 +417,8 @@ private fun DestinationRenderer(destination: LuxDestination) {
             },
             onOpenTrip = { tripId, options: List<TripOption> ->
                 coverController.presentItinerary(tripId = tripId, otherTripOptions = options)
-            }
+            },
+            onBack = { backStack.pop() }
         )
 
         is LuxDestination.TripsSearch -> TripsSearchStandalone(

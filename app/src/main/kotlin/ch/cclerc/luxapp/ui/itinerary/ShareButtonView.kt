@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -40,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.core.CalendarManager
 import ch.cclerc.luxapp.core.CalendarResult
 import ch.cclerc.luxapp.core.HapticFeedback
@@ -218,10 +218,9 @@ fun ShareButtonView(
                     }
                 ) {
                     if (isUploading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = LuxTheme.accent,
-                            strokeWidth = 2.dp
+                        IosActivityIndicator(
+                            size = 20.dp,
+                            color = LuxTheme.accent
                         )
                     } else {
                         SFSymbol(
@@ -253,10 +252,9 @@ fun ShareButtonView(
                     }
                 ) {
                     if (isSavingItinerary) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = LuxTheme.accent,
-                            strokeWidth = 2.dp
+                        IosActivityIndicator(
+                            size = 20.dp,
+                            color = LuxTheme.accent
                         )
                     } else {
                         SFSymbol(
@@ -291,10 +289,9 @@ fun ShareButtonView(
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             if (isUploading || isSavingItinerary) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = colors.label,
-                    strokeWidth = 2.dp
+                IosActivityIndicator(
+                    size = 16.dp,
+                    color = colors.label
                 )
             } else {
                 SFSymbol(name = "square.and.arrow.up", size = 16.sp, color = colors.label)

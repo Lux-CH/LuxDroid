@@ -119,10 +119,14 @@ fun ArrivalMinuteView(
             animationSpec = tween(durationMillis = 350, easing = blinkEasing),
             label = "blink-scale"
         )
+        val glyphName = incomingStop.mode.symbolName.let {
+            if (it.endsWith(".fill")) it else "$it.fill"
+        }
         SFSymbol(
-            name = incomingStop.mode.symbolName,
-            size = 15.sp,
+            name = glyphName,
+            size = fontSize,
             color = latenessColor,
+            weight = if (fontWeight.weight >= FontWeight.SemiBold.weight) 600 else 500,
             modifier = modifier
                 .alpha(blinkAlpha)
                 .scale(blinkScale)

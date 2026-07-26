@@ -77,7 +77,7 @@ fun DisruptionSectionView(
         modifier = modifier
             .fillMaxWidth()
             .background(
-                if (colors.isDark) colors.secondarySystemBackground else colors.systemGray6,
+                if (colors.isDark) colors.secondarySystemBackgroundElevated else colors.systemGray6,
                 shape
             )
     ) {
@@ -116,7 +116,7 @@ fun DisruptionSectionView(
                 .clipToBounds()
                 .layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
-                    val height = (placeable.height * revealProgress).roundToInt()
+                    val height = (placeable.height * revealProgress).roundToInt().coerceAtLeast(0)
                     layout(placeable.width, height) { placeable.place(0, 0) }
                 }
                 .padding(horizontal = 20.dp)
@@ -159,7 +159,7 @@ private fun DisruptionCardView(
                 transformOrigin = TransformOrigin(0.5f, 0f)
             }
             .background(
-                if (colors.isDark) colors.tertiarySystemBackground else Color.White,
+                if (colors.isDark) colors.tertiarySystemBackgroundElevated else Color.White,
                 RoundedCornerShape(14.dp)
             )
             .padding(12.dp),
@@ -186,7 +186,8 @@ private fun DisruptionCardView(
 }
 
 private fun extractTitleAndDesc(disruption: String): Pair<String, String> {
-    val index = disruption.indexOf(" - ")
-    if (index < 0) return "" to disruption
-    return disruption.substring(0, index).trim() to disruption.substring(index + 3).trim()
+    val unescaped = android.text.Html.fromHtml(disruption, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+    val index = unescaped.indexOf(" - ")
+    if (index < 0) return "" to unescaped
+    return unescaped.substring(0, index).trim() to unescaped.substring(index + 3).trim()
 }

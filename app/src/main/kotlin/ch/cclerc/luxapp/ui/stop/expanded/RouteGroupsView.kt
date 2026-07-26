@@ -3,10 +3,11 @@ package ch.cclerc.luxapp.ui.stop.expanded
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -15,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import ch.cclerc.luxapp.domain.TripOption
 import ch.cclerc.luxapp.ui.anim.staggeredEntrance
 import ch.cclerc.luxapp.ui.theme.LuxSprings
+import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.viewmodel.StopViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,12 +79,23 @@ fun RouteGroupsView(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 10.dp)
             ) {
-                items(departures, key = { "${it.tripId}-${it.place.scheduledDeparture ?: it.place.departure ?: it.place.arrival}" }) { stopTime ->
+                itemsIndexed(
+                    departures,
+                    key = { _, it -> "${it.tripId}-${it.place.scheduledDeparture ?: it.place.departure ?: it.place.arrival}" }
+                ) { index, stopTime ->
                     ExpandedDepartureRowView(
                         stopTime = stopTime,
                         onOpenTrip = { tripId -> onOpenTrip(tripId, emptyList()) },
                         onSelectLine = { name -> viewModel.userSelectedLine(name) }
                     )
+
+                    if (index < departures.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 16.dp),
+                            thickness = 0.5.dp,
+                            color = LuxTheme.colors.separator
+                        )
+                    }
                 }
             }
         }

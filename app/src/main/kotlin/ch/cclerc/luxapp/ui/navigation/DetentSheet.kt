@@ -111,7 +111,7 @@ fun DetentSheet(
                     flingBehavior = fling
                 )
                 .clip(LuxShapes.topCorners(cornerRadius))
-                .background(colors.systemBackground)
+                .background(if (colors.isDark) colors.systemBackgroundElevated else colors.systemBackground)
         ) {
             content()
             if (showDragIndicator) {

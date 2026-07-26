@@ -179,7 +179,8 @@ fun MultipleItineraryDetailView(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset(y = 7.5.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             itinerary.legs.forEachIndexed { legIndex, leg ->
                 key(leg.legGeometry.points, legIndex) {
@@ -247,6 +248,12 @@ fun MultipleItineraryDetailView(
             }
 
             Spacer(Modifier.height(20.dp))
+
+            ShareButtonView(
+                itinerary = itinerary,
+                compact = false,
+                modifier = Modifier.padding(bottom = 20.dp)
+            )
         }
     }
 

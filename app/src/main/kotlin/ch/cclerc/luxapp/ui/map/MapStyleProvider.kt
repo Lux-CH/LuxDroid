@@ -35,20 +35,25 @@ object MapStyleProvider {
                 .open(assetPath(dark))
                 .bufferedReader()
                 .use { it.readText() }
-            LuxMapStyle(isDark = dark, json = json, firstLabelLayerId = firstSymbolLayerId(json))
+            LuxMapStyle(isDark = dark, json = json, firstLabelLayerId = firstLabelLayerId(json))
         }
     }
 
     fun styleJson(context: Context, dark: Boolean): String = style(context, dark).json
 
-    private fun firstSymbolLayerId(json: String): String? = runCatching {
+    private fun firstLabelLayerId(json: String): String? = runCatching {
         val layers = parser.parseToJsonElement(json).jsonObject["layers"] as? JsonArray
-        val symbol = layers?.firstOrNull { element ->
-            val layer = element as? JsonObject
-            (layer?.get("type") as? JsonPrimitive)?.content == "symbol"
-        } as? JsonObject
-        (symbol?.get("id") as? JsonPrimitive)?.content
+            ?: return@runCatching null
+        val lastPaintedIndex = layers.indexOfLast { element ->
+            layerType(element)?.let { it != "symbol" } == true
+        }
+        val candidate = layers.getOrNull(lastPaintedIndex + 1) as? JsonObject
+        if (layerType(candidate) != "symbol") return@runCatching null
+        (candidate?.get("id") as? JsonPrimitive)?.content
     }.getOrNull()
+
+    private fun layerType(element: kotlinx.serialization.json.JsonElement?): String? =
+        ((element as? JsonObject)?.get("type") as? JsonPrimitive)?.content
 }
 
 @Composable

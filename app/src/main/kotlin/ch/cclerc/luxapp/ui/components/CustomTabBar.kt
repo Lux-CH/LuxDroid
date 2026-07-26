@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -87,13 +88,14 @@ fun CustomTabBar(
     ) {
         val target = slotRects[selectedTab]
         if (target != null) {
+            val maxPillWidth = with(density) { 125.dp.toPx() }
             val indicatorX by animateFloatAsState(target.left, LuxSprings.Snappy)
             val indicatorWidth by animateFloatAsState(target.width, LuxSprings.Snappy)
             Box(
                 Modifier
                     .offset { IntOffset(indicatorX.roundToInt(), target.top.roundToInt()) }
                     .size(
-                        with(density) { indicatorWidth.toDp() },
+                        with(density) { indicatorWidth.coerceAtMost(maxPillWidth).toDp() },
                         with(density) { target.height.toDp() }
                     )
                     .background(accent.copy(alpha = if (isDark) 0.15f else 0.1f), capsule)
@@ -103,52 +105,48 @@ fun CustomTabBar(
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.Center
         ) {
             LuxTab.entries.forEach { tab ->
                 val selected = tab == selectedTab
-                Box(
+                Row(
                     Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        Modifier
-                            .widthIn(max = 125.dp)
-                            .fillMaxWidth()
-                            .fillMaxHeight()
-                            .onGloballyPositioned { coords ->
-                                containerCoords?.let {
-                                    slotRects[tab] = it.localBoundingBoxOf(coords, clipBounds = false)
-                                }
+                        .weight(1f, fill = false)
+                        .widthIn(max = 125.dp)
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .onGloballyPositioned { coords ->
+                            containerCoords?.let {
+                                slotRects[tab] = it.localBoundingBoxOf(coords, clipBounds = false)
                             }
-                            .clickable(interactionSource = null, indication = PlainIndication) {
-                                HapticFeedback.softImpact()
-                                if (selectedTab != tab) onModeChange(tab)
-                            },
-                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-                            SFSymbol(
-                                name = tab.icon,
-                                size = 16.sp,
-                                color = if (selected) accent else colors.label.copy(alpha = 0.6f),
-                                weight = if (selected) 700 else 500
-                            )
                         }
-                        BasicText(
-                            text = tab.title,
-                            style = TextStyle(
-                                fontFamily = InterFontFamily,
-                                fontSize = 16.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selected) accent else colors.label.copy(alpha = 0.6f)
-                            ),
-                            maxLines = 1
+                        .clip(capsule)
+                        .clickable(interactionSource = null, indication = PlainIndication) {
+                            HapticFeedback.softImpact()
+                            if (selectedTab != tab) onModeChange(tab)
+                        },
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+                        SFSymbol(
+                            name = tab.icon,
+                            size = 16.sp,
+                            color = if (selected) accent else colors.label.copy(alpha = 0.6f),
+                            weight = if (selected) 700 else 500
                         )
                     }
+                    BasicText(
+                        text = tab.title,
+                        style = TextStyle(
+                            fontFamily = InterFontFamily,
+                            fontSize = 16.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) accent else colors.label.copy(alpha = 0.6f)
+                        ),
+                        maxLines = 1
+                    )
                 }
             }
         }

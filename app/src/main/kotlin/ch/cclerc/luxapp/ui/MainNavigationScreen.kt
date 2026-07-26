@@ -30,16 +30,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
@@ -75,14 +82,32 @@ import ch.cclerc.luxcom.model.trip.Itinerary
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+internal const val SEARCH_DRAG_RESISTANCE = 0.4f
+
+internal fun Modifier.stretchedShift(shiftPx: Float): Modifier = layout { measurable, constraints ->
+    val extra = (-shiftPx).roundToInt().coerceAtLeast(0)
+    if (extra == 0 || !constraints.hasBoundedHeight) {
+        val placeable = measurable.measure(constraints)
+        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+    val stretched = constraints.maxHeight + extra
+    val placeable = measurable.measure(
+        constraints.copy(minHeight = stretched, maxHeight = stretched)
+    )
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        placeable.place(0, -extra)
+    }
+}
 
 @Composable
 fun MainNavigationScreen(
     homeContent: @Composable () -> Unit = { HomeContentPlaceholder() },
     stopsContent: @Composable (String) -> Unit = { StopsContentPlaceholder() },
-    searchHeader: @Composable () -> Unit = { SearchHeaderPlaceholder() },
+    searchHeader: @Composable (onBack: () -> Unit) -> Unit = { SearchHeaderPlaceholder() },
     searchContent: @Composable () -> Unit = { SearchContentPlaceholder() },
     settingsSheet: @Composable () -> Unit = { SettingsSheetPlaceholder() },
     shortcutsSheet: @Composable () -> Unit = { ShortcutsSheetPlaceholder() },
@@ -245,6 +270,55 @@ fun MainNavigationScreen(
     }
 
     val density = LocalDensity.current
+    val overdragThresholdPx = with(density) { 150.dp.toPx() }
+    val overdragHorizontalGuardPx = with(density) { 100.dp.toPx() }
+    val onStopsOverdrag = rememberUpdatedState<() -> Unit> { switchToHomeMode() }
+    val stopsOverdragConnection = remember(overdragThresholdPx, overdragHorizontalGuardPx) {
+        object : NestedScrollConnection {
+            private var accumY = 0f
+            private var accumX = 0f
+            private var fired = false
+
+            private fun reset() {
+                accumY = 0f
+                accumX = 0f
+                fired = false
+            }
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && available.y < 0f) reset()
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (consumed.y != 0f || available.y <= 0f) {
+                    reset()
+                    return Offset.Zero
+                }
+                accumX += consumed.x + available.x
+                accumY += available.y
+                if (!fired &&
+                    accumY > overdragThresholdPx &&
+                    abs(accumX) < overdragHorizontalGuardPx
+                ) {
+                    fired = true
+                    onStopsOverdrag.value()
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                reset()
+                return Velocity.Zero
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -301,7 +375,14 @@ fun MainNavigationScreen(
                         label = "headerContent"
                     ) { inSearch ->
                         if (inSearch) {
-                            Box(Modifier.fillMaxSize().offset(y = animatedSearchOffset)) { searchHeader() }
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(top = (max(statusInset - 8.dp, 48.dp) - statusInset).coerceAtLeast(0.dp))
+                                    .offset(y = animatedSearchOffset)
+                            ) {
+                                searchHeader { exitSearchMode() }
+                            }
                         } else {
                             Column(
                                 Modifier
@@ -396,7 +477,6 @@ fun MainNavigationScreen(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .offset(y = with(density) { searchDragOffset.toDp() })
             ) {
                 AnimatedContent(
                     targetState = viewMode,
@@ -414,7 +494,7 @@ fun MainNavigationScreen(
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .padding(top = if (compactStops) 0.dp else 8.dp)
+                            .padding(top = if (compactStops || mode == ViewMode.Search) 0.dp else 18.dp)
                             .let {
                                 if (mode == ViewMode.Search) it
                                 else it.iosShadow(Color.Black.copy(alpha = 0.05f), 8.dp, (-4).dp, LuxShapes.topCorners(LuxShapes.r38))
@@ -424,8 +504,21 @@ fun MainNavigationScreen(
                     ) {
                         when (mode) {
                             ViewMode.Home -> homeContent()
-                            ViewMode.Stops -> stopsContent(stopsQuery)
-                            ViewMode.Search -> androidx.compose.runtime.key(searchGeneration) { searchContent() }
+                            ViewMode.Stops -> Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .nestedScroll(stopsOverdragConnection)
+                            ) {
+                                stopsContent(stopsQuery)
+                            }
+
+                            ViewMode.Search -> Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .stretchedShift(searchDragOffset * SEARCH_DRAG_RESISTANCE)
+                            ) {
+                                androidx.compose.runtime.key(searchGeneration) { searchContent() }
+                            }
                         }
                     }
                 }

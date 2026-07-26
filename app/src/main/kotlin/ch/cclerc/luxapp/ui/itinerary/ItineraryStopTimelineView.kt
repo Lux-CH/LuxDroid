@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -113,15 +115,22 @@ fun IntermediateStopsButton(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .clickable(interactionSource = null, indication = PlainIndication, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(
-            modifier = Modifier.width(TimelineColumnWidth),
+            modifier = Modifier
+                .width(TimelineColumnWidth)
+                .fillMaxHeight(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(Modifier.size(3.dp, 20.dp).background(legColor))
-            Box(Modifier.size(3.dp, 20.dp).background(legColor))
+            Box(
+                Modifier
+                    .weight(1f)
+                    .width(TimelineRailWidth)
+                    .background(legColor)
+            )
         }
 
         Row(
@@ -170,6 +179,7 @@ fun ItineraryStopTimelineRowView(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .height(IntrinsicSize.Min)
             .clickable(interactionSource = null, indication = PlainIndication, onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -181,7 +191,9 @@ fun ItineraryStopTimelineRowView(
             isDepartureStop = isDepartureStop,
             isArrivalStop = isArrivalStop,
             isCurrentStop = stopStatus.isCurrentStop,
-            modifier = Modifier.width(TimelineColumnWidth)
+            modifier = Modifier
+                .width(TimelineColumnWidth)
+                .fillMaxHeight()
         )
 
         Column(

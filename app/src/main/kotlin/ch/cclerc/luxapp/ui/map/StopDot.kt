@@ -1,26 +1,29 @@
 package ch.cclerc.luxapp.ui.map
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import ch.cclerc.luxapp.ui.theme.LuxSprings
-import ch.cclerc.luxapp.ui.theme.iosShadow
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import ch.cclerc.luxapp.viewmodel.StopAnnotation
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import org.maplibre.compose.expressions.dsl.Feature
+import org.maplibre.compose.expressions.dsl.const
+import org.maplibre.compose.expressions.dsl.convertToColor
+import org.maplibre.compose.layers.CircleLayer
+import org.maplibre.compose.sources.GeoJsonData
+import org.maplibre.compose.sources.GeoJsonSource
+import org.maplibre.compose.sources.rememberGeoJsonSource
+import org.maplibre.compose.util.ClickResult
+import org.maplibre.compose.util.FeaturesClickHandler
+import org.maplibre.compose.util.MaplibreComposable
 
 val StopDotHitSize = 44.dp
 
@@ -29,68 +32,165 @@ val StopDotIntermediateSize = 10.dp
 val StopDotDefaultSize = 16.dp
 val StopDotTerminalHaloSize = 30.dp
 
-private const val STOP_DOT_BOUNCE_SCALE = 1.2f
-private const val STOP_DOT_BOUNCE_HOLD_MS = 200L
+const val LUX_STOP_HALO_LAYER_ID = "lux-stop-halo"
+const val LUX_STOP_TERMINAL_LAYER_ID = "lux-stop-terminal"
+const val LUX_STOP_DEFAULT_LAYER_ID = "lux-stop-default"
+const val LUX_STOP_INTERMEDIATE_LAYER_ID = "lux-stop-intermediate"
+const val LUX_STOP_HIT_LAYER_ID = "lux-stop-hit"
 
-fun stopDotDiameter(isTerminal: Boolean, isIntermediate: Boolean) = when {
-    isTerminal -> StopDotTerminalSize
-    isIntermediate -> StopDotIntermediateSize
-    else -> StopDotDefaultSize
+private const val STOP_HALO_OPACITY = 0.15f
+private const val STOP_HIT_OPACITY = 0.002f
+private val StopDotTerminalStroke = 3.dp
+private val StopDotStroke = 1.dp
+
+private enum class StopDotKind { TERMINAL, INTERMEDIATE, DEFAULT }
+
+@Composable
+@MaplibreComposable
+fun StopDotLayers(
+    stops: List<StopAnnotation>,
+    showingIntermediateStops: Boolean,
+    onStopClick: (StopAnnotation) -> Unit
+) {
+    val grouped = remember(stops) { stops.groupBy(::stopDotKind) }
+    val byId = remember(stops) { stops.associateBy { it.id } }
+
+    val terminals = grouped[StopDotKind.TERMINAL].orEmpty()
+    val intermediates = grouped[StopDotKind.INTERMEDIATE].orEmpty()
+    val defaults = grouped[StopDotKind.DEFAULT].orEmpty()
+
+    val terminalSource = rememberStopSource(terminals)
+    val intermediateSource = rememberStopSource(intermediates)
+    val defaultSource = rememberStopSource(defaults)
+
+    val onFeaturesClick: FeaturesClickHandler = { features ->
+        val annotation = features.firstNotNullOfOrNull { feature ->
+            (feature.properties?.get("id") as? JsonPrimitive)?.content?.let(byId::get)
+        }
+        if (annotation != null) {
+            onStopClick(annotation)
+            ClickResult.Consume
+        } else {
+            ClickResult.Pass
+        }
+    }
+
+    CircleLayer(
+        id = LUX_STOP_HALO_LAYER_ID,
+        source = terminalSource,
+        radius = const(StopDotTerminalHaloSize / 2),
+        color = Feature.get("color").convertToColor(),
+        opacity = const(STOP_HALO_OPACITY),
+        strokeWidth = const(0.dp)
+    )
+
+    StopCircleLayer(
+        id = LUX_STOP_INTERMEDIATE_LAYER_ID,
+        source = intermediateSource,
+        radius = StopDotIntermediateSize / 2,
+        strokeWidth = StopDotStroke,
+        visible = showingIntermediateStops
+    )
+
+    StopCircleLayer(
+        id = LUX_STOP_DEFAULT_LAYER_ID,
+        source = defaultSource,
+        radius = StopDotDefaultSize / 2,
+        strokeWidth = StopDotStroke,
+        visible = showingIntermediateStops
+    )
+
+    StopCircleLayer(
+        id = LUX_STOP_TERMINAL_LAYER_ID,
+        source = terminalSource,
+        radius = StopDotTerminalSize / 2,
+        strokeWidth = StopDotTerminalStroke
+    )
+
+    CircleLayer(
+        id = "$LUX_STOP_HIT_LAYER_ID-terminal",
+        source = terminalSource,
+        radius = const(StopDotHitSize / 2),
+        color = Feature.get("color").convertToColor(),
+        opacity = const(STOP_HIT_OPACITY),
+        strokeWidth = const(0.dp),
+        onClick = onFeaturesClick
+    )
+
+    CircleLayer(
+        id = "$LUX_STOP_HIT_LAYER_ID-default",
+        source = defaultSource,
+        visible = showingIntermediateStops,
+        radius = const(StopDotHitSize / 2),
+        color = Feature.get("color").convertToColor(),
+        opacity = const(STOP_HIT_OPACITY),
+        strokeWidth = const(0.dp),
+        onClick = onFeaturesClick
+    )
+
+    CircleLayer(
+        id = "$LUX_STOP_HIT_LAYER_ID-intermediate",
+        source = intermediateSource,
+        visible = showingIntermediateStops,
+        radius = const(StopDotHitSize / 2),
+        color = Feature.get("color").convertToColor(),
+        opacity = const(STOP_HIT_OPACITY),
+        strokeWidth = const(0.dp),
+        onClick = onFeaturesClick
+    )
 }
 
 @Composable
-fun StopDot(
-    color: Color,
-    isTerminal: Boolean,
-    isIntermediate: Boolean,
-    modifier: Modifier = Modifier,
-    onTapDown: () -> Unit = {},
-    onTap: () -> Unit = {}
+@MaplibreComposable
+private fun StopCircleLayer(
+    id: String,
+    source: GeoJsonSource,
+    radius: Dp,
+    strokeWidth: Dp,
+    visible: Boolean = true
 ) {
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
-    val interactionSource = remember { MutableInteractionSource() }
-    val diameter = stopDotDiameter(isTerminal, isIntermediate)
-    val strokeWidth = if (isTerminal) 3.dp else 1.dp
-
-    Box(
-        modifier = modifier
-            .size(StopDotHitSize)
-            .clip(CircleShape)
-            .clickable(interactionSource = interactionSource, indication = null) {
-                onTapDown()
-                scope.launch {
-                    launch { scale.animateTo(STOP_DOT_BOUNCE_SCALE, LuxSprings.StopBounce) }
-                    delay(STOP_DOT_BOUNCE_HOLD_MS)
-                    scale.snapTo(1f)
-                    onTap()
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        if (isTerminal) {
-            Box(
-                Modifier
-                    .size(StopDotTerminalHaloSize)
-                    .background(color.copy(alpha = 0.15f), CircleShape)
-            )
-        }
-
-        Box(
-            Modifier
-                .graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
-                }
-                .size(diameter)
-                .iosShadow(
-                    color = Color.Black.copy(alpha = 0.2f),
-                    blurRadius = 2.dp,
-                    offsetY = 1.dp,
-                    shape = CircleShape
-                )
-                .background(Color.White, CircleShape)
-                .border(strokeWidth, color, CircleShape)
-        )
-    }
+    CircleLayer(
+        id = id,
+        source = source,
+        visible = visible,
+        radius = const(radius),
+        color = const(Color.White),
+        strokeColor = Feature.get("color").convertToColor(),
+        strokeWidth = const(strokeWidth)
+    )
 }
+
+@Composable
+@MaplibreComposable
+private fun rememberStopSource(stops: List<StopAnnotation>): GeoJsonSource {
+    val json = remember(stops) { stopFeatureCollectionJson(stops) }
+    return rememberGeoJsonSource(data = GeoJsonData.JsonString(json))
+}
+
+private fun stopDotKind(annotation: StopAnnotation): StopDotKind = when {
+    annotation.isTerminal -> StopDotKind.TERMINAL
+    annotation.isIntermediate -> StopDotKind.INTERMEDIATE
+    else -> StopDotKind.DEFAULT
+}
+
+fun stopFeatureCollectionJson(stops: List<StopAnnotation>): String = buildJsonObject {
+    put("type", "FeatureCollection")
+    putJsonArray("features") {
+        stops.forEach { stop ->
+            addJsonObject {
+                put("type", "Feature")
+                putJsonObject("properties") {
+                    put("id", stop.id)
+                    put("color", stop.color.toCssColorString())
+                }
+                putJsonObject("geometry") {
+                    put("type", "Point")
+                    putJsonArray("coordinates") {
+                        add(stop.coordinate.longitude)
+                        add(stop.coordinate.latitude)
+                    }
+                }
+            }
+        }
+    }
+}.toString()

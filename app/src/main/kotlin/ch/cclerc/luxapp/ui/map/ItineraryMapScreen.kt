@@ -56,9 +56,7 @@ fun ItineraryMapScreen(
     val overlays = remember(viewModel.routeOverlays) {
         viewModel.routeOverlays.map { RouteOverlay(it.id, it.coordinates, it.color) }
     }
-    val stops = remember(viewModel.mapAnnotations, viewModel.showingIntermediateStops) {
-        viewModel.mapAnnotations.filter { it.isTerminal || viewModel.showingIntermediateStops }
-    }
+    val stops = viewModel.mapAnnotations
     val vehicles = rememberAnimatedVehicleAnnotations(viewModel.vehicleAnnotations)
     val walking = rememberAnimatedWalkingAnnotations(viewModel.walkingAnnotations)
 
@@ -159,32 +157,16 @@ fun ItineraryMapScreen(
                     CameraDistance.cameraDistanceMeters(metersPerDp, mapHeight.value)
                 )
             }
-        )
-
-        AnnotationOverlay(
-            items = stops,
-            projection = projector,
-            positionOf = { it.coordinate },
-            modifier = Modifier.matchParentSize(),
-            keyOf = { it.id }
-        ) { annotation ->
-            StopDot(
-                color = annotation.color,
-                isTerminal = annotation.isTerminal,
-                isIntermediate = annotation.isIntermediate,
-                onTapDown = { onSheetVisibilityChange(false) },
-                onTap = { popoverStop = annotation }
-            )
-        }
-
-        AnnotationOverlay(
-            items = walking,
-            projection = projector,
-            positionOf = { it.coordinate },
-            modifier = Modifier.matchParentSize(),
-            keyOf = { it.id }
         ) {
-            WalkingDot()
+            StopDotLayers(
+                stops = stops,
+                showingIntermediateStops = viewModel.showingIntermediateStops,
+                onStopClick = { annotation ->
+                    onSheetVisibilityChange(false)
+                    popoverStop = annotation
+                }
+            )
+            WalkingDotLayer(walking = walking)
         }
 
         AnnotationOverlay(

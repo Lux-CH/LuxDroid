@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
 import androidx.compose.ui.unit.sp
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.core.SFSymbol
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.TripOption
@@ -133,9 +133,8 @@ fun CompactStopView(
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.height(18.dp),
-                    strokeWidth = 2.dp,
+                IosActivityIndicator(
+                    size = 18.dp,
                     color = colors.secondaryLabel
                 )
                 Text(

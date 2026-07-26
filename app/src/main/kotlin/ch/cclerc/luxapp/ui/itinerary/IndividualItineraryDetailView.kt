@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
@@ -68,7 +69,7 @@ fun IndividualItineraryDetailView(
     val upcomingStops = remember(mainLeg) { mainLeg?.let { calculateUpcomingStopsForSingleLeg(it) } ?: emptyList() }
     val nextStop = remember(mainLeg) { mainLeg?.let { calculateNextStop(it) } }
 
-    val backgroundColor = if (colors.isDark) colors.systemBackground else Color.White
+    val backgroundColor = if (colors.isDark) colors.systemBackgroundElevated else Color.White
 
     Column(
         modifier = modifier
@@ -97,7 +98,8 @@ fun IndividualItineraryDetailView(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val routeShortName = mainLeg.routeShortName
             if (routeShortName != null && mainLeg.agencyId in genevaAgencies) {
@@ -129,6 +131,12 @@ fun IndividualItineraryDetailView(
                     .padding(bottom = 10.dp),
                 thickness = 1.dp,
                 color = colors.separator
+            )
+
+            ShareButtonView(
+                itinerary = itinerary,
+                compact = false,
+                modifier = Modifier.padding(bottom = 20.dp)
             )
         }
     }

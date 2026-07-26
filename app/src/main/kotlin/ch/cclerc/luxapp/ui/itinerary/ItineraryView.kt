@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -38,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.core.SFSymbol
 import ch.cclerc.luxapp.domain.TripOption
@@ -257,6 +257,18 @@ private fun ItineraryScaffold(
             }
         }
 
+        val loadedItinerary = viewModel.itinerary
+        if (loadedItinerary != null) {
+            ShareButtonView(
+                itinerary = loadedItinerary,
+                compact = true,
+                showCompactSaveAction = !isSingle,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = OverlayHorizontalPadding, top = topInset + OverlayColumnSpacing)
+            )
+        }
+
         AnimatedVisibility(
             visible = showDetails,
             modifier = Modifier.fillMaxSize(),
@@ -294,7 +306,7 @@ private fun ItineraryLoadingOverlay() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)
     ) {
-        CircularProgressIndicator(color = LuxTheme.accent)
+        IosActivityIndicator(size = 32.dp, color = LuxTheme.accent)
         Text(
             text = "Chargement de l'itinéraire...",
             style = LuxTheme.type.subheadline,
@@ -382,10 +394,9 @@ private fun TripSelectionButton(
             contentAlignment = Alignment.Center
         ) {
             if (isBusy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = accent,
-                    strokeWidth = 2.dp
+                IosActivityIndicator(
+                    size = 20.dp,
+                    color = accent
                 )
             } else {
                 SFSymbol(name = "clock", size = 17.sp, color = accent)

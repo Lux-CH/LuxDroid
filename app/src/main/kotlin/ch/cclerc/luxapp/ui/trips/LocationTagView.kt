@@ -18,7 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,11 +79,19 @@ fun LocationTagView(
 
         Text(
             text = location.displayName,
-            style = LuxTheme.type.subheadline,
+            fontSize = 15.sp,
+            lineHeight = 15.sp,
             fontWeight = FontWeight.Medium,
             color = colors.label,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            style = LuxTheme.type.subheadline.copy(
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.Both
+                )
+            ),
             modifier = Modifier.weight(1f, fill = false)
         )
 
@@ -90,6 +100,8 @@ fun LocationTagView(
                 .clip(CircleShape)
                 .clickable(interactionSource = null, indication = PlainIndication) { onRemove() }
                 .padding(4.dp)
+                .size(15.dp),
+            contentAlignment = Alignment.Center
         ) {
             SFSymbol(name = "xmark.circle.fill", size = 15.sp, color = colors.systemGray)
         }

@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.core.LocationAuthState
 import ch.cclerc.luxapp.core.LocationService
 import ch.cclerc.luxapp.core.SFSymbol
@@ -417,9 +417,8 @@ private fun LoadingLabel(message: String) {
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.height(18.dp),
-            strokeWidth = 2.dp,
+        IosActivityIndicator(
+            size = 18.dp,
             color = colors.secondaryLabel
         )
         Text(

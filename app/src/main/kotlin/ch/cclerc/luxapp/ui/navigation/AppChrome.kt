@@ -42,8 +42,8 @@ fun AppChrome(
                 destinationContent = destinationContent
             )
             detentSheet?.invoke()
-            SheetHost(sheetController)
             FullScreenCoverHost(coverController)
+            SheetHost(sheetController)
         }
     }
 }

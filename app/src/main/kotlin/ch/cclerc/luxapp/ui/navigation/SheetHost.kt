@@ -260,7 +260,7 @@ private fun SheetLayer(
                 .height(with(density) { largestHeight.toDp() })
                 .offset { IntOffset(0, offset.value.roundToInt()) }
                 .clip(LuxShapes.topCorners(request.cornerRadius))
-                .background(colors.systemBackground)
+                .background(if (colors.isDark) colors.systemBackgroundElevated else colors.systemBackground)
                 .nestedScroll(connection)
                 .draggable(
                     orientation = Orientation.Vertical,

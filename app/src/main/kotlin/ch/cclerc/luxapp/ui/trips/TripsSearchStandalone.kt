@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
@@ -30,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.domain.shortcut.ShortcutManager
+import ch.cclerc.luxapp.ui.SEARCH_DRAG_RESISTANCE
+import ch.cclerc.luxapp.ui.stretchedShift
 import ch.cclerc.luxapp.ui.components.KeyboardToolbar
 import ch.cclerc.luxapp.ui.components.KeyboardToolbarShortcut
 import ch.cclerc.luxapp.ui.theme.LuxTheme
@@ -110,7 +111,7 @@ fun TripsSearchStandalone(
                 state = remember(viewModel) { TripsSearchScreenState(viewModel) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = statusInset + 12.dp),
+                    .padding(top = maxOf(statusInset - 8.dp, 48.dp)),
                 onBack = onDismiss,
                 shortcutSymbol = shortcutSymbol
             )
@@ -119,7 +120,7 @@ fun TripsSearchStandalone(
                 Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .offset(y = with(density) { dragOffset.toDp() })
+                    .stretchedShift(dragOffset * SEARCH_DRAG_RESISTANCE)
             ) {
                 TripsSearchContentView(
                     viewModel = viewModel,
