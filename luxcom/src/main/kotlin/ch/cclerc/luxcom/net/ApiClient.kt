@@ -25,8 +25,22 @@ object ApiClient {
         .readTimeout(5, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)
+        .fastFallback(true)
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .build()
+
+    fun warmUp() {
+        val request = Request.Builder()
+            .url("$primaryBaseUrl/v1/geocode?text=a&language=fr")
+            .head()
+            .build()
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.close()
+            }
+        })
+    }
 
     @PublishedApi
     internal val jsonMediaType = "application/json".toMediaType()

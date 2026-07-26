@@ -13,6 +13,7 @@ import ch.cclerc.luxapp.data.Progress
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.ConnectionService
 import ch.cclerc.luxapp.domain.search.SearchResultVisualStyleStore
+import ch.cclerc.luxcom.net.ApiClient
 import ch.cclerc.luxcom.relay.RelayClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,7 @@ class LuxApplication : Application() {
         LocationService.init(this)
         NetworkMonitor.init(this)
         ConnectionService.init(this)
+        ApiClient.warmUp()
         if (Settings.appLaunchCount % 15 == 0) {
             appScope.launch { CacheCleaner.performCleanup(this@LuxApplication) }
         }
