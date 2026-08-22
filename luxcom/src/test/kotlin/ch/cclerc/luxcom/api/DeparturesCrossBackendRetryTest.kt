@@ -9,6 +9,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -68,7 +69,7 @@ class DeparturesCrossBackendRetryTest {
         val backupRequest = backup.takeRequest(2, TimeUnit.SECONDS)
         assertEquals(primaryRequest?.path, backupRequest?.path)
         assertTrue(backupRequest?.path?.startsWith("/v4/stoptimes?") == true)
-        assertTrue(ApiState.primaryServerAvailable)
+        assertFalse(ApiState.isUsingBackup)
     }
 
     @Test
@@ -85,7 +86,7 @@ class DeparturesCrossBackendRetryTest {
 
     @Test
     fun unknownStopOnBackupRetriesOnPrimary() = runBlocking {
-        ApiState.markPrimaryDown()
+        ApiState.forceBackup()
         backup.enqueue(MockResponse().setResponseCode(400).setBody(noRadiusBody))
         primary.enqueue(MockResponse().setBody(emptyStopTimesJson))
 

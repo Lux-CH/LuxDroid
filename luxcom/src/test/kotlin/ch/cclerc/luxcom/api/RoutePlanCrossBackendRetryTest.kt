@@ -11,6 +11,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -86,12 +87,12 @@ class RoutePlanCrossBackendRetryTest {
         val backupRequest = backup.takeRequest(2, TimeUnit.SECONDS)
         assertEquals(primaryRequest?.path, backupRequest?.path)
         assertTrue(backupRequest?.path?.startsWith("/v4/plan?") == true)
-        assertTrue(ApiState.primaryServerAvailable)
+        assertFalse(ApiState.isUsingBackup)
     }
 
     @Test
     fun unknownTimetableLocationOnBackupRetriesOnPrimary() = runBlocking {
-        ApiState.markPrimaryDown()
+        ApiState.forceBackup()
         backup.enqueue(MockResponse().setResponseCode(400).setBody(unknownLocationBody))
         primary.enqueue(MockResponse().setBody(emptyTripJson))
 

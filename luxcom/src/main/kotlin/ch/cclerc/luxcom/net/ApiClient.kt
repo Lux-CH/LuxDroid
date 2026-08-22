@@ -20,6 +20,8 @@ object ApiClient {
     internal var primaryBaseUrl: String = apiUrl
     internal var backupBaseUrl: String = bckpApiUrl
 
+    private const val PRIMARY_RETRY_TIMEOUT_MS = 2_500L
+
     val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
@@ -28,6 +30,18 @@ object ApiClient {
         .fastFallback(true)
         .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
         .build()
+
+    /** Shares the connection pool and dispatcher; only the call timeout differs. */
+    private val retryClient: OkHttpClient = client.newBuilder()
+        .callTimeout(PRIMARY_RETRY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        .build()
+
+    /**
+     * Optional hook reporting that the *device* has no usable network. luxcom has
+     * no Context, so the app layer wires this to ConnectivityManager. When it says
+     * we are offline there is nothing to fail over to, so primary is not blamed.
+     */
+    var isDeviceOffline: (() -> Boolean)? = null
 
     fun warmUp() {
         val request = Request.Builder()
@@ -66,7 +80,22 @@ object ApiClient {
     }
 
     internal fun crossBackendRetryUrl(): String =
-        if (ApiState.primaryServerAvailable) backupBaseUrl else primaryBaseUrl
+        if (ApiState.isUsingBackup) primaryBaseUrl else backupBaseUrl
+
+    /**
+     * Cloudflare reports a dead tunnel as a perfectly valid HTTP response, so a
+     * gateway status counts as the backend being unreachable rather than as an
+     * answer from it. The error itself is still surfaced unchanged to callers.
+     */
+    private fun isGatewayFailure(statusCode: Int): Boolean =
+        statusCode in 520..527 || statusCode == 502 || statusCode == 503 ||
+            statusCode == 504 || statusCode == 530
+
+    private fun isConnectionFailure(error: Throwable): Boolean = when (error) {
+        is IOException -> true
+        is ApiError.RequestFailed -> isGatewayFailure(error.statusCode)
+        else -> false
+    }
 
     @PublishedApi
     internal suspend fun performRequest(
@@ -80,18 +109,50 @@ object ApiClient {
         if (baseUrl != null) {
             return executeRequest(endpoint, apiVersion, queryItems, baseUrl, method, jsonBody)
         }
-        val usePrimary = ApiState.shouldUsePrimary()
-        val resolvedUrl = if (usePrimary) primaryBaseUrl else backupBaseUrl
+
+        suspend fun requestBackup(): String =
+            executeRequest(endpoint, apiVersion, queryItems, backupBaseUrl, method, jsonBody)
+
+        suspend fun requestPrimary(useRetryTimeout: Boolean): String {
+            try {
+                val body = executeRequest(
+                    endpoint, apiVersion, queryItems, primaryBaseUrl, method, jsonBody,
+                    if (useRetryTimeout) retryClient else client
+                )
+                ApiState.markPrimaryReachable()
+                return body
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // A non-connection error means the server answered: primary is up.
+                if (!isConnectionFailure(e)) ApiState.markPrimaryReachable()
+                throw e
+            }
+        }
+
+        if (!ApiState.shouldUsePrimary()) return requestBackup()
+
         try {
-            return executeRequest(endpoint, apiVersion, queryItems, resolvedUrl, method, jsonBody)
+            return requestPrimary(useRetryTimeout = false)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IOException) {
-            if (usePrimary) {
-                ApiState.markPrimaryDown()
-                return executeRequest(endpoint, apiVersion, queryItems, backupBaseUrl, method, jsonBody)
+        } catch (e: Throwable) {
+            if (!isConnectionFailure(e)) throw e
+            if (isDeviceOffline?.invoke() == true) throw e
+
+            if (ApiState.shouldRetryPrimary()) {
+                try {
+                    return requestPrimary(useRetryTimeout = true)
+                } catch (retry: CancellationException) {
+                    throw retry
+                } catch (retry: Throwable) {
+                    if (!isConnectionFailure(retry)) throw retry
+                    if (isDeviceOffline?.invoke() == true) throw retry
+                }
             }
-            throw e
+
+            ApiState.recordPrimaryFailure()
+            return requestBackup()
         }
     }
 
@@ -101,7 +162,8 @@ object ApiClient {
         queryItems: List<Pair<String, String>>,
         baseUrl: String,
         method: String,
-        jsonBody: String?
+        jsonBody: String?,
+        httpClient: OkHttpClient = client
     ): String {
         val url = "$baseUrl/$apiVersion$endpoint".toHttpUrlOrNull() ?: throw ApiError.InvalidUrl()
         val urlBuilder = url.newBuilder()
@@ -112,7 +174,7 @@ object ApiClient {
             .url(urlBuilder.build())
             .method(method, jsonBody?.toRequestBody(jsonMediaType))
             .build()
-        client.newCall(request).executeAsync().use { response ->
+        httpClient.newCall(request).executeAsync().use { response ->
             val body = withContext(Dispatchers.IO) { response.body.string() }
             if (response.code !in 200..299) {
                 throw ApiError.RequestFailed(response.code, body)
