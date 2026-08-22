@@ -64,7 +64,7 @@ fun IndividualItineraryDetailView(
 ) {
     val colors = LuxTheme.colors
     val mainLeg = itinerary.legs.firstOrNull()
-    val color = mainLeg?.let { legColor(it) } ?: Color.Black
+    val color = mainLeg?.let { legColor(it, brightIt = true) } ?: Color.Black
 
     val upcomingStops = remember(mainLeg) { mainLeg?.let { calculateUpcomingStopsForSingleLeg(it) } ?: emptyList() }
     val nextStop = remember(mainLeg) { mainLeg?.let { calculateNextStop(it) } }

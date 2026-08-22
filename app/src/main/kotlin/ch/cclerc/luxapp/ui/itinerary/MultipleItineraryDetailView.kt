@@ -185,7 +185,7 @@ fun MultipleItineraryDetailView(
             itinerary.legs.forEachIndexed { legIndex, leg ->
                 key(leg.legGeometry.points, legIndex) {
                     if (leg.mode != TransportationMode.WALK) {
-                        val color = legColor(leg)
+                        val color = legColor(leg, brightIt = true)
 
                         LegHeaderView(
                             leg = leg,
