@@ -23,6 +23,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -53,6 +55,8 @@ fun TripSearchBar(
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val fieldStyle = TextStyle(
         fontFamily = InterFontFamily,
         fontSize = 16.sp,
@@ -88,6 +92,8 @@ fun TripSearchBar(
                             if (searchText.isNotEmpty()) {
                                 onSearch()
                                 HapticFeedback.lightImpact()
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
                             }
                         }
                     ),

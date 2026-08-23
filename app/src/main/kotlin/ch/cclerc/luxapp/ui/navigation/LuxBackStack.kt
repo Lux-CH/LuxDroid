@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxcom.model.SearchResult
 import kotlinx.coroutines.CancellationException
@@ -58,6 +60,8 @@ fun LuxBackStackHost(
 ) {
     val displayed = remember { mutableStateListOf<LuxDestination>() }
     val progress = remember { Animatable(1f) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(stack) {
         snapshotFlow { stack.entries.toList() }.collect { target ->
@@ -65,6 +69,8 @@ fun LuxBackStackHost(
             when {
                 target == current -> Unit
                 target.size > current.size && target.subList(0, current.size) == current -> {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
                     displayed.clear()
                     displayed.addAll(target)
                     progress.snapTo(0f)
@@ -77,6 +83,10 @@ fun LuxBackStackHost(
                     progress.snapTo(1f)
                 }
                 else -> {
+                    if (target.size > current.size) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
+                    }
                     displayed.clear()
                     displayed.addAll(target)
                     progress.snapTo(1f)

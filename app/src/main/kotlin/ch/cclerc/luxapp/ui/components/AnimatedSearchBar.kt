@@ -21,6 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -46,6 +48,8 @@ fun AnimatedSearchBar(
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val capsule = RoundedCornerShape(50)
     val fieldStyle = TextStyle(
         fontFamily = InterFontFamily,
@@ -81,7 +85,13 @@ fun AnimatedSearchBar(
                     textStyle = fieldStyle,
                     cursorBrush = SolidColor(accent),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            onSearch()
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { innerTextField ->
                         Box(contentAlignment = Alignment.CenterStart) {
@@ -118,7 +128,11 @@ fun AnimatedSearchBar(
                     .padding(end = 18.dp)
                     .then(
                         if (isTextFieldDisabled) Modifier
-                        else Modifier.scaleClickable(haptic = false) { onSearch() }
+                        else Modifier.scaleClickable(haptic = false) {
+                            onSearch()
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
                     )
             ) {
                 SFSymbol(name = "magnifyingglass", size = 20.sp, color = accent)
