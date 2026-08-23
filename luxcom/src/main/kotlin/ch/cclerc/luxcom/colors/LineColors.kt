@@ -83,6 +83,7 @@ object LineColors {
         LineColor("80", 0xFFFF9BAA, BLACK),
         LineColor("82", 0xFFEC619F),
         LineColor("83", 0xFFEC619F),
+        LineColor("84", 0xFFF5B5D2, BLACK),
         LineColor("91", 0xFF005F61),
         LineColor("92", 0xFF89CBBE, BLACK),
         LineColor("E", 0xFFFF7E00),
@@ -113,6 +114,7 @@ object LineColors {
         LineColor("RL5", 0xFFC0096F),
         LineColor("RL6", 0xFF019AAA),
         LineColor("RL7", 0xFF27451F),
+        LineColor("SN", 0xFFD91E2A),
         LineColor("M1", 0xFF0076BA),
         LineColor("M2", 0xFFFF6600),
         LineColor("M3", 0xFF068A33),
@@ -138,7 +140,7 @@ object LineColors {
     ).associateBy { it.line }
 
     private val tlLinesColor: Map<String, LineColor> = listOf(
-        LineColor("m1", 0xFFEC008C),
+        LineColor("m1", 0xFF0076BA),
         LineColor("m2", 0xFFEC008C),
         LineColor("R20", 0xFF58B947),
         LineColor("N1", 0xFFDF0915),
@@ -217,6 +219,48 @@ object LineColors {
         LineColor("8", 0xFFE99FC4, BLACK),
         LineColor("TAD CHAL", 0xFF388EC8)
     ).associateBy { it.line }
+
+    private val postAutoColor = LineColor("", 0xFFFFCC00, 0xFFFF0000)
+    private val cgnLinesColor: Map<String, LineColor> = listOf(
+        LineColor("N1", 0xFFEE057A),
+        LineColor("N2", 0xFF58BA4B),
+        LineColor("N3", 0xFFF36A22),
+        LineColor("N4", 0xFF1187B3)
+    ).associateBy { it.line }
+
+    val lausanneAgencies: Set<String> = setOf("151", "55", "764", "7256", "344", "29")
+    val tacAgencies: Set<String> = setOf("1")
+    val postAutoAgencies: Set<String> = setOf("801")
+    val cgnAgencies: Set<String> = setOf("184")
+
+    data class ResolvedLineColor(
+        val color: Long,
+        val textColor: Long,
+        val isBranded: Boolean
+    )
+
+    fun resolve(line: String, agency: String?, isSquared: Boolean): ResolvedLineColor {
+        val match = branded(line, agency)
+        if (match != null) {
+            return ResolvedLineColor(color = match.color, textColor = match.textColor, isBranded = true)
+        }
+        return ResolvedLineColor(
+            color = if (isSquared) squaredPillFallback else 0L,
+            textColor = 0xFFFFFFFF,
+            isBranded = false
+        )
+    }
+
+    private fun branded(line: String, agency: String?): LineColor? {
+        if (agency.isNullOrEmpty()) {
+            return tpgLinesColor[line] ?: tlLinesColor[line] ?: tacLinesColors[line]
+        }
+        if (tacAgencies.contains(agency)) return tacLinesColors[line]
+        if (lausanneAgencies.contains(agency)) return tlLinesColor[line]
+        if (postAutoAgencies.contains(agency)) return postAutoColor
+        if (cgnAgencies.contains(agency)) return cgnLinesColor[line]
+        return tpgLinesColor[line]
+    }
 
     fun color(line: String): Long? = tpgLinesColor[line]?.color
 

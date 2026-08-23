@@ -57,7 +57,7 @@ suspend fun getMapSearchResults(currentLat: Double, currentLon: Double): List<Se
             for (place in group) {
                 val id = place.parentId ?: place.stopId ?: ""
                 points.addAll(pointsById[id] ?: listOf(place.lat to place.lon))
-                servesRail = servesRail || place.modes.any { it.isRail }
+                servesRail = servesRail || place.modes.any { it.isMainlineRail }
             }
             Pair(points, servesRail)
         }
@@ -105,7 +105,7 @@ suspend fun getMapSearchResults(currentLat: Double, currentLon: Double): List<Se
                     val increasing = if (l != r) {
                         l < r
                     } else {
-                        !current.modes.any { it.isRail } && candidate.modes.any { it.isRail }
+                        !current.modes.any { it.isMainlineRail } && candidate.modes.any { it.isMainlineRail }
                     }
                     if (increasing) {
                         ranked = candidate

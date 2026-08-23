@@ -44,6 +44,7 @@ import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.viewmodel.StopViewModel
 import ch.cclerc.luxcom.colors.LineColors
 import ch.cclerc.luxcom.model.SearchResult
+import ch.cclerc.luxcom.model.TransportationMode
 import java.time.Instant
 
 private val DISTANT_FUTURE: Instant = Instant.ofEpochSecond(64_092_211_200L)
@@ -206,10 +207,10 @@ fun CompactStopView(
 
 private fun orderedRouteNames(viewModel: StopViewModel): List<String> {
     val names = viewModel.routeNames
-    if (!viewModel.stop.servesRail) return names
+    if (!viewModel.stop.servesMainlineRail) return names
 
     val rail = names.filter { name ->
-        viewModel.routeGroups[name]?.firstOrNull()?.stopTimes?.firstOrNull()?.mode?.isRail == true
+        viewModel.routeGroups[name]?.firstOrNull()?.stopTimes?.firstOrNull()?.mode?.isMainlineRail == true
     }
     val topRail = rail.minByOrNull { name ->
         viewModel.routeGroups[name]
@@ -231,8 +232,17 @@ private fun RouteGroupView(
     onOpenTrip: (String, List<TripOption>) -> Unit
 ) {
     val colors = LuxTheme.colors
-    val baseColor = LineColors.color(groups.firstOrNull()?.routeShortName ?: "")
-        ?.let { Color(it) } ?: Color(0xFFEA0706)
+    val sample = groups.firstOrNull()?.stopTimes?.firstOrNull()
+    val routeShortName = groups.firstOrNull()?.routeShortName ?: ""
+    val mode = sample?.mode ?: TransportationMode.BUS
+    val isTrainDetected = routeName.startsWith("RL") || routeName.startsWith("IR") ||
+        routeName.startsWith("RE") || routeName.startsWith("IC") || routeName == "R"
+    val resolved = LineColors.resolve(
+        line = routeShortName,
+        agency = sample?.agencyId,
+        isSquared = mode.usesSquaredPill || isTrainDetected
+    )
+    val baseColor = if (resolved.isBranded) Color(resolved.color) else Color(0xFFEA0706)
     val lineColor = if (isDarkColor(baseColor)) lightenColor(baseColor) else baseColor
 
     val overhangDp = if (isLastRoute) (if (isLastStopOverall) 4.dp else 55.dp) else 0.dp

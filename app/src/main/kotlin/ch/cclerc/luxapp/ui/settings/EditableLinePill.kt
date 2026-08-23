@@ -46,11 +46,11 @@ fun EditableLinePill(
         lineNumber.startsWith("RE") || lineNumber.startsWith("IC") || lineNumber == "R"
     val isSquared = mode.usesSquaredPill || isTrainDetected
 
-    val rawColor = LineColors.color(lineNumber)?.let { Color(it) }
+    val resolved = LineColors.resolve(lineNumber, null, isSquared)
     val baseLineColor = when {
-        isSquared && rawColor == null -> Color(0xFFEA0706)
-        rawColor == null -> colors.systemGray
-        else -> rawColor
+        !resolved.isBranded && !isSquared -> colors.systemGray
+        resolved.isBranded -> Color(resolved.color)
+        else -> Color(resolved.color)
     }
     val highContrast = Settings.highContrastButAccurateLinePill
     val lineColor = if (isDarkColor(baseLineColor) && !highContrast) {
@@ -60,9 +60,9 @@ fun EditableLinePill(
     }
     val fillColor = if (highContrast) lineColor else baseLineColor.copy(alpha = 0.25f)
     val textColor = if (highContrast) {
-        Color(LineColors.textColor(lineNumber) ?: 0xFFFFFFFF)
+        Color(resolved.textColor)
     } else {
-        if (rawColor == null) colors.label else lineColor
+        if (!resolved.isBranded) colors.label else lineColor
     }
     val shape = RoundedCornerShape(if (isSquared) 4.dp else 50.dp)
     val shadowPx = with(density) { 1.dp.toPx() }

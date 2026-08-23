@@ -38,4 +38,10 @@ enum class TransportationMode(val rawValue: String) {
 
     val usesSquaredPill: Boolean
         get() = isRail || this == FERRY
+
+    val isMainlineRail: Boolean
+        get() = when (this) {
+            SUBWAY, FUNICULAR -> false
+            else -> isRail
+        }
 }

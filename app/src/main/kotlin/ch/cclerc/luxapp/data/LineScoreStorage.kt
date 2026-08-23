@@ -81,7 +81,7 @@ class LineScoreStorage(
 
     override fun updateLineScore(score: LineScore) {
         val current = _lineScores.value
-        val index = current.indexOfFirst { it.routeShortName == score.routeShortName }
+        val index = current.indexOfFirst { it.routeShortName.equals(score.routeShortName, ignoreCase = true) }
         if (index < 0) return
         val updated = current.toMutableList()
         updated[index] = score
@@ -89,6 +89,6 @@ class LineScoreStorage(
     }
 
     override fun deleteLineScore(routeShortName: String) {
-        saveLineScores(_lineScores.value.filter { it.routeShortName != routeShortName })
+        saveLineScores(_lineScores.value.filter { !it.routeShortName.equals(routeShortName, ignoreCase = true) })
     }
 }

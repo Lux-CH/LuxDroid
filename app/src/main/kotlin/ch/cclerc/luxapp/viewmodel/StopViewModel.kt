@@ -150,14 +150,14 @@ class StopViewModel(
 
     private val departureRadius: Int?
         get() {
-            if (stop.servesRail) return departureRadiusMeters.toInt()
+            if (stop.servesMainlineRail) return departureRadiusMeters.toInt()
             if (stop.groupedStopIds.size > 1) return departureRadiusMeters.toInt()
             if (!StopGrouping.isStationForecourt(stop.name)) return null
             return if (stop.hasRailNeighbour == false) null else departureRadiusMeters.toInt()
         }
 
     private val thinDepartureThreshold: Int
-        get() = if (stop.servesRail) 45 else 30
+        get() = if (stop.servesMainlineRail) 45 else 30
 
     private fun widenDepartureWindowIfNeeded(raw: StopTimes, filtered: StopTimes) {
         if (fromStops || isCustomTimeSelected || hasWidenedDepartureWindow) return
@@ -176,7 +176,7 @@ class StopViewModel(
             name = stop.name,
             lat = stop.lat,
             lon = stop.lon,
-            servesRail = stop.servesRail,
+            servesMainlineRail = stop.servesMainlineRail,
             groupedStopIds = stop.groupedStopIds
         )
 

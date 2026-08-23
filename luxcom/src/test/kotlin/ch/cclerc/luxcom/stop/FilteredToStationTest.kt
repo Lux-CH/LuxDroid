@@ -119,7 +119,7 @@ class FilteredToStationTest {
             name = "Genève, Cornavin",
             lat = 46.21022,
             lon = 6.14229,
-            servesRail = true
+            servesMainlineRail = true
         )
         assertEquals(listOf("home1", "nearBus", "nearTram"), tripIds(result))
     }

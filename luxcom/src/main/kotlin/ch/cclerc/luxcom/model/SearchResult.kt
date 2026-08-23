@@ -23,6 +23,9 @@ data class SearchResult(
     val servesRail: Boolean
         get() = modes.any { it.isRail }
 
+    val servesMainlineRail: Boolean
+        get() = modes.any { it.isMainlineRail }
+
     @Serializable
     data class Area(
         val name: String,

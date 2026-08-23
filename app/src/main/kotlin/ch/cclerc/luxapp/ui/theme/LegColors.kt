@@ -10,8 +10,6 @@ import ch.cclerc.luxcom.model.trip.Leg
 import kotlin.math.max
 import kotlin.math.min
 
-private val lausanneAgencies = setOf("151", "55", "764", "7256", "344", "29")
-
 val legWalkColor: Color = Color(0xFF007AFF)
 val legVehicleGrayColor: Color = Color(0xFF8E8E93)
 val squaredPillFallbackColor: Color = Color(0xFFEA0706)
@@ -34,21 +32,22 @@ fun getLegColor(
         else -> Unit
     }
 
-    val isLausanne = (leg.agencyId ?: "") in lausanneAgencies
-    val isTAC = leg.agencyId == "1"
     val routeName = leg.routeShortName
 
     val baseColor: Color = if (routeName != null) {
-        val tac = if (isTAC) LineColors.tacColors(routeName) else null
-        val mapped = if (isLausanne) LineColors.tlColor(routeName) else LineColors.color(routeName)
-        when {
-            tac != null -> Color(tac)
-            mapped != null -> Color(mapped)
-            else -> {
-                val isTrainDetected = routeName.startsWith("RL") || routeName.startsWith("IR") ||
-                    routeName.startsWith("RE") || routeName.startsWith("IC") || routeName == "R"
-                if (leg.mode.usesSquaredPill || isTrainDetected) squaredPillFallbackColor else accent
-            }
+        val isTrainDetected = routeName.startsWith("RL") || routeName.startsWith("IR") ||
+            routeName.startsWith("RE") || routeName.startsWith("IC") || routeName == "R"
+        val resolved = LineColors.resolve(
+            line = routeName,
+            agency = leg.agencyId,
+            isSquared = leg.mode.usesSquaredPill || isTrainDetected
+        )
+        if (resolved.isBranded) {
+            Color(resolved.color)
+        } else if (resolved.color != 0L) {
+            Color(resolved.color)
+        } else {
+            accent
         }
     } else {
         if (leg.mode.usesSquaredPill) squaredPillFallbackColor else accent

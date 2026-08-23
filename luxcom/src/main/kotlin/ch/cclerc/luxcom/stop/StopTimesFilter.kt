@@ -12,7 +12,7 @@ fun StopTimes.filteredToStation(
     name: String? = null,
     lat: Double? = null,
     lon: Double? = null,
-    servesRail: Boolean = false,
+    servesMainlineRail: Boolean = false,
     groupedStopIds: List<String> = emptyList()
 ): StopTimes {
     val targetName = name?.let { StopGrouping.normalizedName(it) }
@@ -45,21 +45,21 @@ fun StopTimes.filteredToStation(
     }
     if (extras.isEmpty() || home.isEmpty()) return this
 
-    val homeServesRail = servesRail || home.any { it.mode.isRail }
+    val homeServesRail = servesMainlineRail || home.any { it.mode.isMainlineRail }
     val keepExtra: (StopTime) -> Boolean
 
     if (!homeServesRail) {
         val servesStation = name?.let { StopGrouping.isStationForecourt(it) } ?: true
-        keepExtra = if (servesStation) { st -> st.mode.isRail } else { _ -> false }
+        keepExtra = if (servesStation) { st -> st.mode.isMainlineRail } else { _ -> false }
     } else {
-        val localExtras = extras.filter { !it.mode.isRail }
+        val localExtras = extras.filter { !it.mode.isMainlineRail }
         val forecourtIds = localExtras
             .filter { StopGrouping.isStationForecourt(it.place.name) }
             .mapNotNull { it.place.parentId ?: it.place.stopId }
             .toSet()
         if (forecourtIds.isNotEmpty()) {
             keepExtra = { stopTime ->
-                if (stopTime.mode.isRail) {
+                if (stopTime.mode.isMainlineRail) {
                     false
                 } else {
                     val id = stopTime.place.parentId ?: stopTime.place.stopId
@@ -76,7 +76,7 @@ fun StopTimes.filteredToStation(
             }
             keepExtra = if (nearestStation != null) {
                 { stopTime ->
-                    if (stopTime.mode.isRail) {
+                    if (stopTime.mode.isMainlineRail) {
                         false
                     } else {
                         val id = stopTime.place.parentId ?: stopTime.place.stopId
@@ -84,7 +84,7 @@ fun StopTimes.filteredToStation(
                     }
                 }
             } else {
-                { stopTime -> !stopTime.mode.isRail }
+                { stopTime -> !stopTime.mode.isMainlineRail }
             }
         }
     }

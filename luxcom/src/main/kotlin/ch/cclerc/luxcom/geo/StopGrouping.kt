@@ -25,6 +25,23 @@ object StopGrouping {
     fun isGenericLocationTerm(term: String): Boolean =
         genericLocationTerms.contains(term.trim().lowercase())
 
+    val forecourtTerms: Set<String> = setOf("gare", "bahnhof", "stazione")
+
+    private val nameSeparators: Set<Char> = setOf(',', '-', '/', '.', '\'', '\u2019')
+
+    fun separatorInsensitiveKey(name: String): String {
+        val spaced = name.map { if (it in nameSeparators) ' ' else it }.joinToString("")
+        return spaced.split(" ").filter { it.isNotEmpty() }.joinToString(" ").lowercase()
+    }
+
+    fun droppingTrailingForecourt(key: String): String {
+        val words = key.split(" ").toMutableList()
+        if (words.size > 1 && forecourtTerms.contains(words.last())) {
+            words.removeAt(words.lastIndex)
+        }
+        return words.joinToString(" ")
+    }
+
     fun stationFamily(name: String): String {
         var base = normalizedName(name)
         val slash = base.indexOf('/')
@@ -33,9 +50,9 @@ object StopGrouping {
         }
         val parts = base.split(",").map { it.trim() }
         if (parts.size <= 1 || !isStationForecourt(parts[1])) {
-            return base.trim().lowercase()
+            return droppingTrailingForecourt(separatorInsensitiveKey(base))
         }
-        return parts[0].lowercase()
+        return droppingTrailingForecourt(separatorInsensitiveKey(parts[0]))
     }
 
     fun isStationForecourt(name: String): Boolean {

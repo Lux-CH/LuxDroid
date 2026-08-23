@@ -74,9 +74,9 @@ private fun groupBudgetFor(screenHeightDp: Int): GroupBudget = when {
 
 private fun nearbyStation(stops: List<SearchResult>): SearchResult? {
     val closest = stops.firstOrNull() ?: return null
-    if (closest.servesRail) return closest
+    if (closest.servesMainlineRail) return closest
     if (!StopGrouping.isStationForecourt(closest.name)) return null
-    return stops.firstOrNull { it.servesRail }
+    return stops.firstOrNull { it.servesMainlineRail }
 }
 
 private fun formatStatusDate(dateString: String): String = runCatching {

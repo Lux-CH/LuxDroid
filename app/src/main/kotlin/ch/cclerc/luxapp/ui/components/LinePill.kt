@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -30,8 +31,6 @@ import kotlin.math.max
 import kotlin.math.min
 
 enum class LinePillStyle { Standard, Realiste, Confort }
-
-private val lausanneAgencies = setOf("151", "55", "764", "7256", "344", "29")
 
 fun isDarkColor(color: Color): Boolean {
     val luminance = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
@@ -95,18 +94,34 @@ fun LinePill(
 ) {
     val accent = LuxTheme.accent
     val colors = LuxTheme.colors
-    val isLausanne = agencyId in lausanneAgencies
-    val isTAC = agencyId == "1"
-    val isTrainDetected = line.startsWith("RL") || line.startsWith("IR") ||
-        line.startsWith("RE") || line.startsWith("IC") || line == "R"
-    val isSquared = mode.usesSquaredPill || isTrainDetected
-    val formattedLine = if (line.startsWith("RL")) line.drop(1) else line
+    val isFoundationDark = isSystemInDarkTheme()
 
-    val baseLineColor = when {
-        isSquared && LineColors.color(line) == null -> Color(0xFFEA0706)
-        isTAC -> LineColors.tacColors(line)?.let { Color(it) } ?: accent
-        else -> (if (isLausanne) LineColors.tlColor(line) else LineColors.color(line))
-            ?.let { Color(it) } ?: accent
+    val isTrainDetected = listOf("RL", "IR", "RE", "IC", "EC", "EXT", "ICE", "TGV", "RJ", "SN", "R")
+        .any { line.startsWith(it) }
+    val isMetro = mode == TransportationMode.SUBWAY || mode == TransportationMode.METRO ||
+        listOf("m1", "m2").contains(line.lowercase())
+    val isMainlineRail = (mode.isMainlineRail || isTrainDetected) && !isMetro
+
+    val isSquared = when {
+        isMetro -> false
+        mode.usesSquaredPill -> true
+        isTrainDetected -> true
+        else -> false
+    }
+
+    val formattedLine = when {
+        isMetro && line.length == 2 && line.lowercase().startsWith("m") -> line.drop(1)
+        line.startsWith("RL") -> line.drop(1)
+        else -> line
+    }
+
+    val resolved = LineColors.resolve(line, agencyId, isSquared)
+    val baseLineColor = if (resolved.isBranded) {
+        Color(resolved.color)
+    } else if (resolved.color != 0L) {
+        Color(resolved.color)
+    } else {
+        accent
     }
 
     val highContrast = Settings.highContrastButAccurateLinePill
@@ -114,16 +129,31 @@ fun LinePill(
     val lineColor =
         if (isDarkColor(baseLineColor) && !highContrast) lightenColor(baseLineColor) else baseLineColor
 
+    val isEmphasizedService = isMainlineRail || isMetro
+    val emphasizedFillOpacity = if (!isFoundationDark) 0.7f else 0.45f
+
+    val pillWidth = when {
+        isMetro -> height + 4.dp
+        isMainlineRail -> {
+            val textWidth = (formattedLine.length * fontSize.value * 0.7f + 12f).dp
+            maxOf(width, textWidth)
+        }
+        else -> width
+    }
+    val pillHeight = if (isMetro) height + 4.dp else height
+    val labelFontSize = if (isMetro) (fontSize.value + 2).sp else fontSize
+
     val fillColor = when {
         easyOnTheEyes -> Color.Transparent
         highContrast -> lineColor
-        else -> baseLineColor.copy(alpha = 0.25f)
+        else -> baseLineColor.copy(alpha = if (isEmphasizedService) emphasizedFillOpacity else 0.25f)
     }
     val strokeColor = if (easyOnTheEyes) lineColor else colors.hairline
-    val textColor = if (highContrast && !isLausanne) {
-        Color((if (isTAC) LineColors.tacTextColor(line) else LineColors.textColor(line)) ?: 0xFFFFFFFF)
-    } else {
-        if (baseLineColor == Color.Black) Color.White else lineColor
+    val textColor = when {
+        isMainlineRail || isMetro -> Color.White.copy(alpha = 0.85f)
+        highContrast && resolved.isBranded -> Color(resolved.textColor)
+        baseLineColor == Color.Black -> Color.White
+        else -> lineColor
     }
 
     PillBody(
@@ -132,9 +162,9 @@ fun LinePill(
         strokeColor = strokeColor,
         textColor = textColor,
         isSquared = isSquared,
-        width = width,
-        height = height,
-        fontSize = fontSize
+        width = pillWidth,
+        height = pillHeight,
+        fontSize = labelFontSize
     )
 }
 

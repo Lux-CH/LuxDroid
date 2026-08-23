@@ -20,7 +20,7 @@ class LineScoreManager internal constructor(
 
     fun addScore(to: String, points: Double = 0.1) {
         val routeShortName = to.trim().uppercase()
-        val existing = lineScores.firstOrNull { it.routeShortName == routeShortName }
+        val existing = lineScores.firstOrNull { it.routeShortName.equals(routeShortName, ignoreCase = true) }
         if (existing != null) {
             storage.updateLineScore(existing.addingScore(points))
         } else {
@@ -29,7 +29,7 @@ class LineScoreManager internal constructor(
     }
 
     fun getScore(routeShortName: String): Double =
-        lineScores.firstOrNull { it.routeShortName == routeShortName }?.totalScore ?: 0.0
+        lineScores.firstOrNull { it.routeShortName.equals(routeShortName, ignoreCase = true) }?.totalScore ?: 0.0
 
     fun getSortedRouteNames(routeNames: List<String>): List<String> =
         routeNames.sortedWith(compareByDescending<String> { getScore(it) }.thenBy { it })

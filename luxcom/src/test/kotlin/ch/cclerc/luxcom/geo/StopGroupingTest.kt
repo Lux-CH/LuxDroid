@@ -26,7 +26,7 @@ class StopGroupingTest {
     @Test
     fun stationFamilyTruncatesAtSlash() {
         assertEquals("nyon", StopGrouping.stationFamily("Nyon, gare/nord"))
-        assertEquals("meyrin, vaudagne", StopGrouping.stationFamily("Meyrin, Vaudagne/Village"))
+        assertEquals("meyrin vaudagne", StopGrouping.stationFamily("Meyrin, Vaudagne/Village"))
         assertEquals("zurich", StopGrouping.stationFamily("Zürich, Bahnhofplatz/HB"))
     }
 
@@ -35,12 +35,26 @@ class StopGroupingTest {
         assertEquals("nyon", StopGrouping.stationFamily("Nyon, gare"))
         assertEquals("geneve", StopGrouping.stationFamily("Genève, gare Cornavin"))
         assertEquals("bellinzona", StopGrouping.stationFamily("Bellinzona, Stazione"))
+        assertEquals("lausanne", StopGrouping.stationFamily("Lausanne-Gare"))
     }
 
     @Test
     fun stationFamilyKeepsNonForecourtNames() {
-        assertEquals("geneve, bel-air", StopGrouping.stationFamily("Genève, Bel-Air"))
+        assertEquals("geneve bel air", StopGrouping.stationFamily("Genève, Bel-Air"))
         assertEquals("zurich hb", StopGrouping.stationFamily("Zürich HB"))
+    }
+
+    @Test
+    fun separatorInsensitiveKeyReplacesSeparators() {
+        assertEquals("lausanne gare", StopGrouping.separatorInsensitiveKey("Lausanne-Gare"))
+        assertEquals("genève bel air", StopGrouping.separatorInsensitiveKey("Genève, Bel-Air"))
+    }
+
+    @Test
+    fun droppingTrailingForecourtRemovesTrailingTerms() {
+        assertEquals("lausanne", StopGrouping.droppingTrailingForecourt("lausanne gare"))
+        assertEquals("zurich", StopGrouping.droppingTrailingForecourt("zurich bahnhof"))
+        assertEquals("geneve bel air", StopGrouping.droppingTrailingForecourt("geneve bel air"))
     }
 
     @Test
