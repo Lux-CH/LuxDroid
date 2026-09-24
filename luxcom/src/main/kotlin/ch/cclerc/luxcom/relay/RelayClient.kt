@@ -5,6 +5,9 @@ import ch.cclerc.luxcom.model.stop.StopTimes
 import ch.cclerc.luxcom.model.trip.Itinerary
 import ch.cclerc.luxcom.relayUrl
 import ch.cclerc.luxcom.serialization.LuxJson
+import ch.cclerc.luxcom.station.StationLayout
+import ch.cclerc.luxcom.station.TrainFormation
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
@@ -17,7 +20,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
@@ -25,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
@@ -60,7 +67,34 @@ class RelayClient private constructor() {
         val stopId: String? = null,
         val tripId: String? = null,
         val n: Int? = null,
-        val radius: Int? = null
+        val radius: Int? = null,
+        val key: String? = null
+    )
+
+    @Serializable
+    data class CrowdVehicle(
+        val lat: Double,
+        val lon: Double,
+        val bearing: Double? = null,
+        val speed: Double? = null,
+        val ts: Double,
+        val riders: Int,
+        val delay: Int? = null
+    ) {
+        val date: Instant
+            get() = Instant.ofEpochMilli(ts.toLong())
+
+        val isFresh: Boolean
+            get() = Instant.now().toEpochMilli() - ts.toLong() < 45_000
+    }
+
+    @Serializable
+    data class CrowdAck(
+        val tripId: String,
+        val status: String,
+        val delay: Int? = null,
+        val riders: Int? = null,
+        val likelyTripId: String? = null
     )
 
     @Serializable
@@ -76,6 +110,8 @@ class RelayClient private constructor() {
     private var suspendedForBackground = false
     private val subscribers = mutableMapOf<SubscriptionKey, MutableMap<UUID, Subscriber>>()
     private var idleDisconnectJob: Job? = null
+    private var backgroundKeepAliveCount = 0
+    private val _crowdAcks = MutableSharedFlow<CrowdAck>(extraBufferCapacity = 16)
 
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
@@ -115,9 +151,9 @@ class RelayClient private constructor() {
     }
 
     fun disruptions(): Flow<List<Disruption>> {
-        val key = SubscriptionKey("dis", "shared", "global", "")
+        val key = SubscriptionKey("dis", "all", "global", "")
         val subscribeMessage = buildJsonObject {
-            put("action", "sub_dis")
+            put("action", "sub_dis_all")
         }.toString()
         val unsubscribeMessage = buildJsonObject {
             put("action", "unsub_dis")
@@ -125,8 +161,97 @@ class RelayClient private constructor() {
         return stream(key, subscribeMessage, unsubscribeMessage, ListSerializer(Disruption.serializer()))
     }
 
+    fun station(stationId: String): Flow<StationLayout?> {
+        val key = SubscriptionKey("sta", "shared", stationId, "")
+        val subscribeMessage = buildJsonObject {
+            put("action", "sub_sta")
+            put("stationId", stationId)
+        }.toString()
+        val unsubscribeMessage = buildJsonObject {
+            put("action", "unsub_sta")
+            put("stationId", stationId)
+        }.toString()
+        return stream(key, subscribeMessage, unsubscribeMessage, StationLayout.serializer().nullable)
+    }
+
+    fun formation(tripId: String, stopId: String): Flow<TrainFormation?> {
+        val id = "$tripId|$stopId"
+        val key = SubscriptionKey("form", "shared", id, "")
+        val subscribeMessage = buildJsonObject {
+            put("action", "sub_form")
+            put("tripId", tripId)
+            put("stopId", stopId)
+            put("key", id)
+        }.toString()
+        val unsubscribeMessage = buildJsonObject {
+            put("action", "unsub_form")
+            put("key", id)
+        }.toString()
+        return stream(key, subscribeMessage, unsubscribeMessage, TrainFormation.serializer().nullable)
+    }
+
+    fun vehicle(tripId: String): Flow<CrowdVehicle?> {
+        val key = SubscriptionKey("veh", "shared", tripId, "")
+        val subscribeMessage = buildJsonObject {
+            put("action", "sub_veh")
+            put("tripId", tripId)
+        }.toString()
+        val unsubscribeMessage = buildJsonObject {
+            put("action", "unsub_veh")
+            put("tripId", tripId)
+        }.toString()
+        return stream(key, subscribeMessage, unsubscribeMessage, CrowdVehicle.serializer().nullable)
+    }
+
+    fun reportOnboardPosition(
+        tripId: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Double,
+        speed: Double?,
+        boardStopId: String?,
+        boardedAt: Instant?,
+        timestamp: Instant
+    ) {
+        scope.launch {
+            if (!_isConnected.value) return@launch
+            val message = buildJsonObject {
+                put("action", "crowd_pos")
+                put("tripId", tripId)
+                put("lat", latitude)
+                put("lon", longitude)
+                put("acc", accuracy)
+                put("ts", timestamp.toEpochMilli())
+                put("pos", true)
+                if (speed != null && speed >= 0) put("spd", speed)
+                if (boardStopId != null && boardedAt != null) {
+                    put("board", buildJsonObject {
+                        put("stopId", boardStopId)
+                        put("at", boardedAt.toEpochMilli())
+                    })
+                }
+            }.toString()
+            send(message)
+        }
+    }
+
+    fun stopOnboardReports() {
+        scope.launch {
+            send(buildJsonObject { put("action", "crowd_stop") }.toString())
+        }
+    }
+
+    val crowdAcks: SharedFlow<CrowdAck> = _crowdAcks.asSharedFlow()
+
+    fun setBackgroundKeepAlive(enabled: Boolean) {
+        scope.launch {
+            backgroundKeepAliveCount = maxOf(0, backgroundKeepAliveCount + if (enabled) 1 else -1)
+        }
+    }
+
     fun onAppBackground() {
         scope.launch {
+            if (backgroundKeepAliveCount > 0) return@launch
             suspendedForBackground = true
             disconnect()
         }
@@ -246,8 +371,13 @@ class RelayClient private constructor() {
         }.getOrNull() ?: return
 
         val channel = header.ch
+        if (channel == "crowd") {
+            val ack = runCatching { LuxJson.decodeFromString(CrowdAck.serializer(), text) }.getOrNull()
+            if (ack != null) _crowdAcks.tryEmit(ack)
+            return
+        }
         val src = header.src ?: "shared"
-        val id = header.stopId ?: header.tripId ?: "global"
+        val id = header.key ?: header.stopId ?: header.tripId ?: "global"
         val extra = header.n?.let { "$it|${header.radius ?: 0}" }
 
         for ((candidate, keySubscribers) in subscribers) {
