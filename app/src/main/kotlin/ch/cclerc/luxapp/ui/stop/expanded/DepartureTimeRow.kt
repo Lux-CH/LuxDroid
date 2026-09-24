@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.GroupedStopTime
 import ch.cclerc.luxapp.domain.TripOption
+import ch.cclerc.luxapp.domain.punctuality
 import ch.cclerc.luxapp.ui.anim.NumericText
 import ch.cclerc.luxapp.ui.anim.scaleClickable
 import ch.cclerc.luxapp.ui.anim.staggeredEntrance
@@ -97,24 +98,9 @@ fun DepartureTimeRow(
     val departure = stopTime.place.departure ?: stopTime.place.arrival
     val scheduledDeparture = stopTime.place.scheduledDeparture ?: stopTime.place.scheduledArrival
 
-    val latenessReference = stopTime.place.scheduledDeparture
-        ?: stopTime.place.scheduledArrival ?: now
-    val latenessActual = stopTime.place.departure ?: stopTime.place.arrival ?: now
-    val latenessDifference = Duration.between(latenessReference, latenessActual).toMinutes().toInt()
-
-    val latenessColor: Color = when {
-        stopTime.cancelled -> colors.systemRed
-        !stopTime.realTime -> colors.label
-        latenessDifference < 2 && latenessDifference >= -1 -> colors.systemGreen
-        else -> colors.systemYellow
-    }
-
-    val borderColor: Color = when {
-        stopTime.cancelled -> colors.systemRed
-        !stopTime.realTime -> colors.separator
-        latenessDifference < 2 && latenessDifference >= -1 -> colors.systemGreen.copy(alpha = 0.5f)
-        else -> colors.systemYellow.copy(alpha = 0.5f)
-    }
+    val punctuality = stopTime.punctuality()
+    val latenessColor: Color = punctuality.color(colors)
+    val borderColor: Color = punctuality.borderColor(colors)
 
     val showDelay = Settings.showDelayInsteadOfDirectTime
     val primaryColor = if (showDelay) colors.label else latenessColor

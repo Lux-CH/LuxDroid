@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import ch.cclerc.luxapp.core.BlinkManager
 import ch.cclerc.luxapp.core.SFSymbol
 import ch.cclerc.luxapp.domain.displayBufferTime
+import ch.cclerc.luxapp.domain.punctuality
 import ch.cclerc.luxapp.domain.symbolName
 import ch.cclerc.luxapp.ui.anim.NumericText
 import ch.cclerc.luxapp.ui.theme.InterFontFamily
@@ -94,17 +95,12 @@ fun ArrivalMinuteView(
     val scheduledDifference =
         ((eventTime.toEpochMilli() - scheduledTime.toEpochMilli()) / 60000L).toInt()
 
-    val latenessColor: Color = when {
-        incomingStop.cancelled -> colors.systemRed
-        !incomingStop.realTime -> colors.label
-        scheduledDifference < 2 && scheduledDifference >= -1 -> colors.systemGreen
-        else -> colors.systemYellow
-    }
+    val latenessColor: Color = incomingStop.punctuality().color(colors)
 
     val secondsUntilCleanup =
         (((eventTime.toEpochMilli() + (bufferTime * 1000.0).toLong()) - now.toEpochMilli()) / 1000L)
             .toInt()
-    val shouldBlink =
+    val shouldBlink = !incomingStop.cancelled &&
         secondsUntilCleanup <= bufferTime.toInt() && secondsUntilCleanup >= -bufferTime.toInt()
 
     if (shouldBlink) {

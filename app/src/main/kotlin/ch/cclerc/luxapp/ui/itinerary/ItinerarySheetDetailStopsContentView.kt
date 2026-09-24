@@ -23,6 +23,8 @@ fun ItinerarySheetDetailStopsContentView(
     toStop: Place,
     duration: Int,
     isMultipleLeg: Boolean,
+    isRealTime: Boolean,
+    isCancelled: Boolean,
     onSelectStop: (Place) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -76,6 +78,8 @@ fun ItinerarySheetDetailStopsContentView(
                 fromStop = fromStop,
                 toStop = toStop,
                 isMultipleLeg = isMultipleLeg,
+                isRealTime = isRealTime,
+                isCancelled = isCancelled,
                 onSelectStop = onSelectStop,
                 modifier = Modifier.padding(top = 4.dp)
             )

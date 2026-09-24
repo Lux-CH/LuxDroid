@@ -49,6 +49,8 @@ fun ItineraryStopTimelineView(
     fromStop: Place,
     toStop: Place,
     isMultipleLeg: Boolean,
+    isRealTime: Boolean,
+    isCancelled: Boolean,
     onSelectStop: (Place) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -81,6 +83,8 @@ fun ItineraryStopTimelineView(
                     isDepartureStop = stop.name == fromStop.name,
                     isArrivalStop = stop.name == toStop.name,
                     currentDate = Instant.now(),
+                    isRealTime = isRealTime,
+                    isCancelled = isCancelled,
                     onSelect = { onSelectStop(stop) }
                 )
             }
@@ -166,6 +170,8 @@ fun ItineraryStopTimelineRowView(
     isDepartureStop: Boolean,
     isArrivalStop: Boolean,
     currentDate: Instant,
+    isRealTime: Boolean,
+    isCancelled: Boolean,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -228,7 +234,9 @@ fun ItineraryStopTimelineRowView(
                 legColor = legColor,
                 accentColor = accentColor,
                 isDepartureStop = isDepartureStop,
-                isArrivalStop = isArrivalStop
+                isArrivalStop = isArrivalStop,
+                isRealTime = isRealTime,
+                isCancelled = isCancelled
             )
         }
 
