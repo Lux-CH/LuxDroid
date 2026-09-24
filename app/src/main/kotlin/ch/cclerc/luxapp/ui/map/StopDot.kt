@@ -5,6 +5,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.viewmodel.StopAnnotation
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,7 +20,13 @@ import kotlinx.serialization.json.putJsonObject
 import org.maplibre.compose.expressions.dsl.Feature
 import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.expressions.dsl.convertToColor
+import org.maplibre.compose.expressions.dsl.convertToString
+import org.maplibre.compose.expressions.dsl.format
+import org.maplibre.compose.expressions.dsl.offset
+import org.maplibre.compose.expressions.dsl.span
+import org.maplibre.compose.expressions.value.SymbolAnchor
 import org.maplibre.compose.layers.CircleLayer
+import org.maplibre.compose.layers.SymbolLayer
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.GeoJsonSource
 import org.maplibre.compose.sources.rememberGeoJsonSource
@@ -37,11 +46,18 @@ const val LUX_STOP_TERMINAL_LAYER_ID = "lux-stop-terminal"
 const val LUX_STOP_DEFAULT_LAYER_ID = "lux-stop-default"
 const val LUX_STOP_INTERMEDIATE_LAYER_ID = "lux-stop-intermediate"
 const val LUX_STOP_HIT_LAYER_ID = "lux-stop-hit"
+const val LUX_STOP_LABEL_LAYER_ID = "lux-stop-label"
 
 private const val STOP_HALO_OPACITY = 0.15f
 private const val STOP_HIT_OPACITY = 0.002f
 private val StopDotTerminalStroke = 3.dp
 private val StopDotStroke = 1.dp
+
+private val StopLabelFontStack = listOf("Noto Sans Bold")
+
+private val StopLabelTextSize = 11.sp
+private val StopLabelHaloWidth = 1.5.dp
+private val StopLabelMaxWidth = 8.em
 
 private enum class StopDotKind { TERMINAL, INTERMEDIATE, DEFAULT }
 
@@ -138,6 +154,55 @@ fun StopDotLayers(
         strokeWidth = const(0.dp),
         onClick = onFeaturesClick
     )
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-terminal",
+        source = terminalSource,
+        dotSize = StopDotTerminalSize
+    )
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-default",
+        source = defaultSource,
+        dotSize = StopDotDefaultSize,
+        visible = showingIntermediateStops
+    )
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-intermediate",
+        source = intermediateSource,
+        dotSize = StopDotIntermediateSize,
+        visible = showingIntermediateStops
+    )
+}
+
+@Composable
+@MaplibreComposable
+private fun StopLabelLayer(
+    id: String,
+    source: GeoJsonSource,
+    dotSize: Dp,
+    visible: Boolean = true
+) {
+    val colors = LuxTheme.colors
+    // MapKit anchors the annotation title just under the marker; mirror that gap in ems.
+    val verticalOffset = (dotSize.value / 2f + 4f) / StopLabelTextSize.value
+
+    SymbolLayer(
+        id = id,
+        source = source,
+        visible = visible,
+        textField = format(span(Feature.get("name").convertToString())),
+        textFont = const(StopLabelFontStack.map(::const)),
+        textSize = const(StopLabelTextSize),
+        textColor = const(colors.label),
+        textHaloColor = const(colors.systemBackground),
+        textHaloWidth = const(StopLabelHaloWidth),
+        textAnchor = const(SymbolAnchor.Top),
+        textOffset = offset(0.em, verticalOffset.em),
+        textMaxWidth = const(StopLabelMaxWidth),
+        textOptional = const(true)
+    )
 }
 
 @Composable
@@ -182,6 +247,7 @@ fun stopFeatureCollectionJson(stops: List<StopAnnotation>): String = buildJsonOb
                 putJsonObject("properties") {
                     put("id", stop.id)
                     put("color", stop.color.toCssColorString())
+                    put("name", stop.place.name)
                 }
                 putJsonObject("geometry") {
                     put("type", "Point")
