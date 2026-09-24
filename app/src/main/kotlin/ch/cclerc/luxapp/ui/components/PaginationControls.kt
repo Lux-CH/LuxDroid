@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,7 +97,14 @@ fun PaginationControls(
                     offsetY = 5.dp,
                     shape = capsule
                 )
-                .background(if (isDark) colors.secondarySystemBackground else Color.White, capsule)
+                .background(
+                    if (isDark) {
+                        Color.Black.copy(alpha = 0.35f).compositeOver(colors.secondarySystemBackground)
+                    } else {
+                        Color.White
+                    },
+                    capsule
+                )
                 .border(0.75.dp, if (isDark) colors.hairline else colors.hairlineGray, capsule)
         )
         Row(

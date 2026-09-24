@@ -80,7 +80,7 @@ fun TripResultView(
 
     val shape = RoundedCornerShape(LuxShapes.r24)
     val fill = if (onClick == null) {
-        if (colors.isDark) colors.systemFill.copy(alpha = 0.3f) else colors.systemBackground
+        if (colors.isDark) colors.systemFill.copy(alpha = 0.45f) else colors.systemBackground
     } else {
         colors.secondarySystemGroupedBackground
     }
@@ -100,7 +100,7 @@ fun TripResultView(
         )
         .clip(shape)
         .background(fill, shape)
-        .border(0.5.dp, colors.hairline, shape)
+        .border(0.5.dp, if (onClick == null) colors.label.copy(alpha = 0.15f) else colors.hairline, shape)
         .let {
             if (onClick == null) it
             else it.clickable(
