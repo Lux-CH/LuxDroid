@@ -1,12 +1,5 @@
 package ch.cclerc.luxapp.ui.itinerary
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -31,14 +23,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
@@ -62,10 +51,8 @@ import ch.cclerc.luxapp.ui.trips.TripResultView
 import ch.cclerc.luxapp.viewmodel.ItineraryViewModel
 import ch.cclerc.luxcom.model.Place
 import ch.cclerc.luxcom.model.TransportationMode
-import ch.cclerc.luxcom.model.trip.Direction
 import ch.cclerc.luxcom.model.trip.Itinerary
 import ch.cclerc.luxcom.model.trip.Leg
-import ch.cclerc.luxcom.model.trip.StepInstruction
 import java.time.Instant
 
 private const val SIGNPOST_INLINE_ID = "signpost"
@@ -84,42 +71,6 @@ internal fun calculateUpcomingStopsForMultiLeg(leg: Leg): List<Place> {
         relevantTime >= cutoff
     }
     return upcoming.ifEmpty { allStops }
-}
-
-internal fun legRowId(leg: Leg): String =
-    "${leg.startTime.epochSecond}-${leg.from.name}-${leg.to.name}"
-
-internal fun directionSymbolName(direction: Direction): String = when (direction) {
-    Direction.left, Direction.hardLeft -> "arrow.turn.up.left"
-    Direction.slightlyLeft -> "arrow.up.left"
-    Direction.right, Direction.hardRight -> "arrow.turn.up.right"
-    Direction.slightlyRight -> "arrow.up.right"
-    Direction.depart, Direction.continueStraight -> "arrow.up"
-    Direction.uturnLeft, Direction.uturnRight -> "arrow.uturn.left"
-    Direction.circleClockwise, Direction.circleCounterClockwise -> "arrow.clockwise"
-    Direction.stairs -> "figure.stairs"
-    Direction.elevator -> "arrow.up.and.down.square"
-}
-
-internal fun stepInstructionText(step: StepInstruction): String {
-    val street = step.streetName.trim().takeIf { it.isNotEmpty() && !it.equals("unnamed", true) }
-    val onStreet = street?.let { " sur $it" } ?: ""
-
-    return when (step.relativeDirection) {
-        Direction.depart -> if (street != null) "Partez sur $street" else "Continuer sur ${formatDistance(step.distance)}"
-        Direction.continueStraight -> if (street != null) "Continuez sur $street" else "Continuez tout droit"
-        Direction.left -> "Tournez à gauche$onStreet"
-        Direction.hardLeft -> "Tournez fortement à gauche$onStreet"
-        Direction.slightlyLeft -> "Légèrement à gauche$onStreet"
-        Direction.right -> "Tournez à droite$onStreet"
-        Direction.hardRight -> "Tournez fortement à droite$onStreet"
-        Direction.slightlyRight -> "Légèrement à droite$onStreet"
-        Direction.uturnLeft, Direction.uturnRight -> "Faites demi-tour$onStreet"
-        Direction.circleClockwise, Direction.circleCounterClockwise ->
-            if (step.exit.isNotBlank()) "Au rond-point, prenez la sortie ${step.exit}" else "Prenez le rond-point$onStreet"
-        Direction.stairs -> "Prenez les escaliers$onStreet"
-        Direction.elevator -> "Prenez l'ascenseur$onStreet"
-    }
 }
 
 @Composable
@@ -147,7 +98,6 @@ fun MultipleItineraryDetailView(
     onOpenSubLeg: (String) -> Unit = {}
 ) {
     val colors = LuxTheme.colors
-    val expandedLegIds = remember(itinerary) { mutableStateListOf<String>() }
     var tightConnectionAlert by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     fun tightConnectionLegs(walkingLeg: Leg, legIndex: Int): Pair<Leg, Leg>? {
@@ -204,6 +154,16 @@ fun MultipleItineraryDetailView(
                             color = colors.separator
                         )
 
+                        val legDisruptions = rememberDisruptions(leg)
+                        if (legDisruptions.isNotEmpty()) {
+                            DisruptionSectionView(
+                                disruptions = legDisruptions,
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp)
+                                    .padding(top = 14.dp)
+                            )
+                        }
+
                         ItinerarySheetDetailStopsContentView(
                             stops = calculateUpcomingStopsForMultiLeg(leg),
                             legColor = color,
@@ -211,15 +171,14 @@ fun MultipleItineraryDetailView(
                             toStop = leg.to,
                             duration = leg.duration,
                             isMultipleLeg = true,
+                            isRealTime = leg.realTime,
+                            isCancelled = leg.cancelled,
                             onSelectStop = { viewModel.selectedStop = it },
                             modifier = Modifier
                                 .padding(horizontal = 20.dp)
                                 .padding(top = 16.dp, bottom = 10.dp)
                         )
                     } else {
-                        val legId = legRowId(leg)
-                        val isExpanded = expandedLegIds.contains(legId)
-                        val walkingSteps = leg.steps.orEmpty()
                         val tightLegs = tightConnectionLegs(leg, legIndex)
 
                         WalkingLegSection(
@@ -227,14 +186,7 @@ fun MultipleItineraryDetailView(
                             legIndex = legIndex,
                             legCount = itinerary.legs.size,
                             destinationName = viewModel.destinationName,
-                            steps = walkingSteps,
-                            isExpanded = isExpanded,
                             isTightConnection = tightLegs != null,
-                            onToggle = {
-                                if (walkingSteps.isNotEmpty()) {
-                                    if (isExpanded) expandedLegIds.remove(legId) else expandedLegIds.add(legId)
-                                }
-                            },
                             onTightConnectionTap = {
                                 tightLegs?.let { (fromLeg, toLeg) ->
                                     tightConnectionAlert =
@@ -282,35 +234,16 @@ private fun WalkingLegSection(
     legIndex: Int,
     legCount: Int,
     destinationName: String?,
-    steps: List<StepInstruction>,
-    isExpanded: Boolean,
     isTightConnection: Boolean,
-    onToggle: () -> Unit,
     onTightConnectionTap: () -> Unit
 ) {
     val colors = LuxTheme.colors
     val blue = colors.systemBlue
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (isExpanded) 90f else 0f,
-        animationSpec = tween(durationMillis = 300),
-        label = "walking-chevron"
-    )
 
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (steps.isNotEmpty()) {
-                        Modifier.clickable(
-                            interactionSource = null,
-                            indication = PlainIndication,
-                            onClick = onToggle
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -389,95 +322,6 @@ private fun WalkingLegSection(
                 }
             }
 
-            Spacer(Modifier.weight(1f))
-
-            if (steps.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = "Détails", style = LuxTheme.type.caption, color = blue)
-                    SFSymbol(
-                        name = "chevron.right",
-                        size = 12.sp,
-                        color = blue,
-                        weight = 400,
-                        modifier = Modifier.rotate(chevronRotation)
-                    )
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = isExpanded && steps.isNotEmpty(),
-            enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.95f),
-            exit = fadeOut(tween(300)) + scaleOut(tween(300), targetScale = 0.95f)
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 12.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(blue.copy(alpha = 0.05f))
-            ) {
-                steps.forEachIndexed { stepIndex, step ->
-                    WalkingStepRow(step = step)
-
-                    if (stepIndex < steps.size - 1) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 56.dp, end = 20.dp),
-                            thickness = 0.5.dp,
-                            color = colors.separator
-                        )
-                    }
-                }
-
-                if (leg.to.track != leg.from.track) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 56.dp, end = 20.dp),
-                        thickness = 0.5.dp,
-                        color = colors.separator
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Box(
-                            Modifier
-                                .size(24.dp)
-                                .background(colors.systemGreen, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            SFSymbol(
-                                name = "checkmark.circle.fill",
-                                size = 12.sp,
-                                color = Color.White,
-                                weight = 500
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ArrivalText(leg = leg, destinationName = destinationName)
-
-                            val track = leg.to.track
-                            if (track != null && track.isNotEmpty() && track != "inconnu") {
-                                Text(
-                                    text = getTrackType(track),
-                                    style = LuxTheme.type.caption,
-                                    color = colors.secondaryLabel
-                                )
-                            }
-                        }
-
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
         }
 
         HorizontalDivider(
@@ -485,50 +329,6 @@ private fun WalkingLegSection(
             thickness = 0.5.dp,
             color = colors.separator
         )
-    }
-}
-
-@Composable
-private fun WalkingStepRow(step: StepInstruction) {
-    val colors = LuxTheme.colors
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Box(
-            Modifier
-                .size(24.dp)
-                .background(colors.systemBlue, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            SFSymbol(
-                name = directionSymbolName(step.relativeDirection),
-                size = 12.sp,
-                color = Color.White,
-                weight = 500
-            )
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stepInstructionText(step),
-                style = LuxTheme.type.subheadline,
-                color = colors.label
-            )
-            if (step.distance > 0) {
-                Text(
-                    text = formatDistance(step.distance),
-                    style = LuxTheme.type.caption,
-                    color = colors.secondaryLabel
-                )
-            }
-        }
-
-        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -581,21 +381,3 @@ private fun WalkingDescriptionText(
     )
 }
 
-@Composable
-private fun ArrivalText(leg: Leg, destinationName: String?) {
-    val colors = LuxTheme.colors
-    val style = LuxTheme.type.subheadline.copy(fontWeight = FontWeight.Medium)
-    val inline = signpostInlineContent(15.sp, colors.label)
-
-    val text: AnnotatedString = if (leg.to.name == "END") {
-        if (destinationName != null) {
-            signpostText("Arrivée à ", destinationName)
-        } else {
-            AnnotatedString("Vous êtes arrivé à destination")
-        }
-    } else {
-        signpostText("Arrivée à ", leg.to.name)
-    }
-
-    Text(text = text, inlineContent = inline, style = style, color = colors.label)
-}

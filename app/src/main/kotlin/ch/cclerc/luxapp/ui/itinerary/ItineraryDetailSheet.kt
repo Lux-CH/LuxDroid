@@ -6,13 +6,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ch.cclerc.luxapp.core.SFSymbol
+import ch.cclerc.luxapp.ui.navigation.DetentSheetState
+import ch.cclerc.luxapp.ui.navigation.SheetDetent
+import ch.cclerc.luxapp.ui.navigation.SheetPushHost
 import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.viewmodel.ItineraryViewModel
 import ch.cclerc.luxcom.model.Place
@@ -21,15 +30,30 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlin.math.ceil
+import kotlinx.coroutines.launch
 
 @Composable
 fun ItineraryDetailSheet(
     viewModel: ItineraryViewModel,
     isSingle: Boolean,
     modifier: Modifier = Modifier,
+    sheetState: DetentSheetState? = null,
     onOpenSubLeg: (String) -> Unit = {}
 ) {
     val itinerary = viewModel.itinerary
+    val scope = rememberCoroutineScope()
+    var disruptionGroups by remember { mutableStateOf<List<DisruptionGroup>?>(null) }
+
+    val openDisruptions: (List<DisruptionGroup>) -> Unit = { groups ->
+        scope.launch {
+            val compact = sheetState?.detents?.firstOrNull()
+            if (sheetState != null && compact != null && sheetState.currentDetent == compact) {
+                sheetState.animateTo(SheetDetent.Medium)
+            }
+            disruptionGroups = groups
+        }
+    }
+
     if (itinerary == null) {
         ItineraryContentUnavailable(
             symbol = "map.fill",
@@ -40,21 +64,30 @@ fun ItineraryDetailSheet(
         return
     }
 
-    if (isSingle) {
-        IndividualItineraryDetailView(
-            viewModel = viewModel,
-            itinerary = itinerary,
-            isMultipleLeg = false,
+    CompositionLocalProvider(LocalOpenDisruptions provides openDisruptions) {
+        SheetPushHost(
+            pushed = disruptionGroups,
+            onPop = { disruptionGroups = null },
             modifier = modifier,
-            onOpenSubLeg = onOpenSubLeg
-        )
-    } else {
-        MultipleItineraryDetailView(
-            itinerary = itinerary,
-            viewModel = viewModel,
-            modifier = modifier,
-            onOpenSubLeg = onOpenSubLeg
-        )
+            destination = { groups ->
+                DisruptionsListView(groups = groups, onBack = { disruptionGroups = null })
+            }
+        ) {
+            if (isSingle) {
+                IndividualItineraryDetailView(
+                    viewModel = viewModel,
+                    itinerary = itinerary,
+                    isMultipleLeg = false,
+                    onOpenSubLeg = onOpenSubLeg
+                )
+            } else {
+                MultipleItineraryDetailView(
+                    itinerary = itinerary,
+                    viewModel = viewModel,
+                    onOpenSubLeg = onOpenSubLeg
+                )
+            }
+        }
     }
 }
 

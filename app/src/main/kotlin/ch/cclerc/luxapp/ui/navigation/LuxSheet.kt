@@ -3,6 +3,7 @@ package ch.cclerc.luxapp.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -10,9 +11,15 @@ sealed interface SheetDetent {
     data class Fraction(val f: Float) : SheetDetent
     data object Medium : SheetDetent
     data object Large : SheetDetent
+
+    class Height(val key: String, val height: Dp) : SheetDetent {
+        override fun equals(other: Any?): Boolean = other is Height && other.key == key
+        override fun hashCode(): Int = key.hashCode()
+    }
 }
 
 internal fun SheetDetent.sortFraction(): Float = when (this) {
+    is SheetDetent.Height -> 0f
     is SheetDetent.Fraction -> f
     SheetDetent.Medium -> 0.5f
     SheetDetent.Large -> 1f
@@ -21,8 +28,10 @@ internal fun SheetDetent.sortFraction(): Float = when (this) {
 internal fun detentHeightPx(
     detent: SheetDetent,
     containerHeightPx: Float,
-    largeHeightPx: Float
+    largeHeightPx: Float,
+    density: Density? = null
 ): Float = when (detent) {
+    is SheetDetent.Height -> density?.run { detent.height.toPx() } ?: detent.height.value
     is SheetDetent.Fraction -> containerHeightPx * detent.f
     SheetDetent.Medium -> containerHeightPx * 0.5f
     SheetDetent.Large -> largeHeightPx

@@ -24,8 +24,6 @@ import ch.cclerc.luxcom.model.trip.Itinerary
 import ch.cclerc.luxcom.model.trip.Leg
 import java.time.Instant
 
-private val genevaAgencies = setOf("881", "Transports Publics Genevois")
-
 internal fun calculateUpcomingStopsForSingleLeg(leg: Leg): List<Place> {
     val intermediateStops = leg.intermediateStops ?: return emptyList()
     val cutoff = Instant.now().minusSeconds(60)
@@ -101,10 +99,10 @@ fun IndividualItineraryDetailView(
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            val routeShortName = mainLeg.routeShortName
-            if (routeShortName != null && mainLeg.agencyId in genevaAgencies) {
+            val disruptions = rememberDisruptions(mainLeg)
+            if (disruptions.isNotEmpty()) {
                 DisruptionSectionView(
-                    disruptions = rememberDisruptions(routeShortName),
+                    disruptions = disruptions,
                     modifier = Modifier
                         .padding(horizontal = 20.dp)
                         .padding(top = 15.dp)
@@ -119,6 +117,8 @@ fun IndividualItineraryDetailView(
                 toStop = mainLeg.to,
                 duration = mainLeg.duration,
                 isMultipleLeg = isMultipleLeg,
+                isRealTime = mainLeg.realTime,
+                isCancelled = mainLeg.cancelled,
                 onSelectStop = { viewModel.selectedStop = it },
                 modifier = Modifier
                     .padding(horizontal = 20.dp)
