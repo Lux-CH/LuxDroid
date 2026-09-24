@@ -62,8 +62,11 @@ object VehicleVisualisation {
             }
         }
 
+        var searchStart = 0
         val mappedStops = stops.map { stop ->
-            MappedStop(stop.arrivalTime, stop.departureTime, findClosestPointIndex(coordinates, stop.coordinate))
+            val closestIndex = findClosestPointIndex(coordinates, stop.coordinate, searchStart)
+            searchStart = closestIndex
+            MappedStop(stop.arrivalTime, stop.departureTime, closestIndex)
         }
 
         val keyFrames = ArrayList<KeyFrame>()
@@ -177,8 +180,10 @@ object VehicleVisualisation {
             val decelerationDistance = if (isArrivingAtStop) min(totalDistance * 0.15, 200.0) else 0.0
             val cruisingDistance = totalDistance - accelerationDistance - decelerationDistance
 
-            val accelerationTime = if (isDepartingFromStop) segmentDuration * 0.12 else 0.0
-            val decelerationTime = if (isArrivingAtStop) segmentDuration * 0.12 else 0.0
+            val cruisingSpeed =
+                (2 * accelerationDistance + cruisingDistance + 2 * decelerationDistance) / segmentDuration
+            val accelerationTime = if (cruisingSpeed > 0) 2 * accelerationDistance / cruisingSpeed else 0.0
+            val decelerationTime = if (cruisingSpeed > 0) 2 * decelerationDistance / cruisingSpeed else 0.0
             val cruisingTime = segmentDuration - accelerationTime - decelerationTime
 
             for (i in segmentCoordinates.indices) {
@@ -239,19 +244,14 @@ object VehicleVisualisation {
 
     private fun easeOutCubic(x: Double): Double = 1.0 - (1.0 - x).pow(3)
 
-    private fun findClosestPointIndex(coordinates: List<LatLng>, target: LatLng): Int {
-        var closestDistance = Double.POSITIVE_INFINITY
-        var closestIndex = 0
+    private fun findClosestPointIndex(coordinates: List<LatLng>, target: LatLng, start: Int = 0): Int {
+        val lowerBound = min(start, coordinates.size - 1)
+        val distances = (lowerBound until coordinates.size).map { coordinates[it].distanceTo(target) }
+        val closest = distances.minOrNull() ?: return start
 
-        coordinates.forEachIndexed { index, coordinate ->
-            val distance = coordinate.squaredDistanceTo(target)
-            if (distance < closestDistance) {
-                closestDistance = distance
-                closestIndex = index
-            }
-        }
-
-        return closestIndex
+        val tolerance = 25.0
+        val offset = distances.indexOfFirst { it <= closest + tolerance }.coerceAtLeast(0)
+        return lowerBound + offset
     }
 
     fun interpolatePosition(timestamp: Double, keyFrames: List<KeyFrame>): LatLng? {
