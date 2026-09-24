@@ -380,16 +380,16 @@ object LuxTripCodec {
             scheduledStartTime,
             scheduledEndTime,
             realTime,
-            distance,
-            headsign,
-            routeShortName,
-            intermediateStops,
-            legGeometry,
-            agencyId,
-            tripId,
-            steps,
-            interlineWithPreviousLeg,
-            alternatives
+            distance = distance,
+            headsign = headsign,
+            routeShortName = routeShortName,
+            intermediateStops = intermediateStops,
+            legGeometry = legGeometry,
+            agencyId = agencyId,
+            tripId = tripId,
+            steps = steps,
+            interlineWithPreviousLeg = interlineWithPreviousLeg,
+            alternatives = alternatives
         )
     }
 

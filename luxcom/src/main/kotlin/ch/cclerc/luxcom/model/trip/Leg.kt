@@ -17,6 +17,7 @@ data class Leg(
     @Serializable(with = InstantIso8601Serializer::class) val scheduledStartTime: Instant,
     @Serializable(with = InstantIso8601Serializer::class) val scheduledEndTime: Instant,
     val realTime: Boolean,
+    val cancelled: Boolean = false,
     val distance: Double? = null,
     val headsign: String? = null,
     val routeShortName: String? = null,
