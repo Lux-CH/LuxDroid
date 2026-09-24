@@ -3,29 +3,40 @@ package ch.cclerc.luxapp.domain.search
 import ch.cclerc.luxcom.geo.calculateDistance
 import ch.cclerc.luxcom.model.LocationType
 import ch.cclerc.luxcom.model.SearchResult
+import ch.cclerc.luxcom.model.TransportationMode
 import java.text.Normalizer
+import kotlin.math.abs
+import kotlin.math.log10
+import kotlin.math.max
+import kotlin.math.min
 
 class SearchResultScorer {
 
     fun ranked(
-        results: List<SearchResult>,
+        sources: List<List<SearchResult>>,
         query: String,
         userLat: Double?,
         userLon: Double?
     ): List<SearchResult> {
+        val entries = sources.flatMap { source ->
+            source.mapIndexed { index, result -> result to index }
+        }
+
         val queryTokens = tokenize(query)
-        if (queryTokens.isEmpty()) return results
+        if (queryTokens.isEmpty()) return entries.map { it.first }
 
-        val normalizedQuery = queryTokens.joinToString(" ")
+        val hasUserLocation = userLat != null && userLon != null
 
-        val scored = results.map { result ->
-            val textScore = textScore(result.name, queryTokens, normalizedQuery)
+        val scored = entries.map { (result, sourceRank) ->
+            val textScore = textScore(result, queryTokens)
             val distance = distance(userLat, userLon, result)
-            val proximityScore = proximityScore(distance)
+            val proximityScore = proximityScore(distance, hasUserLocation)
 
-            var composite = TEXT_WEIGHT * textScore + PROXIMITY_WEIGHT * proximityScore
+            var composite = TEXT_WEIGHT * textScore +
+                PROXIMITY_WEIGHT * proximityScore +
+                SOURCE_RANK_WEIGHT * sourceRankScore(sourceRank)
             if (result.type == LocationType.STOP) {
-                composite += STOP_RELEVANCE_WEIGHT * textScore
+                composite += (STOP_WEIGHT + IMPORTANCE_WEIGHT * importance(result)) * textScore
             }
 
             ScoredResult(result, composite, distance)
@@ -36,60 +47,142 @@ class SearchResultScorer {
 
     private val comparator = Comparator<ScoredResult> { lhs, rhs ->
         if (lhs.score != rhs.score) return@Comparator rhs.score.compareTo(lhs.score)
-
-        if (lhs.result.type != rhs.result.type) {
-            val lhsIsStop = lhs.result.type == LocationType.STOP
-            return@Comparator if (lhsIsStop) -1 else 1
-        }
-
         if (lhs.distance != rhs.distance) return@Comparator lhs.distance.compareTo(rhs.distance)
-
         lhs.result.name.compareTo(rhs.result.name, ignoreCase = true)
     }
 
-    private fun textScore(name: String, queryTokens: List<String>, normalizedQuery: String): Double {
-        val nameTokens = tokenize(name)
+    private fun textScore(result: SearchResult, queryTokens: List<String>): Double {
+        val nameTokens = tokenize(result.name)
         if (nameTokens.isEmpty()) return 0.0
 
-        val normalizedName = nameTokens.joinToString(" ")
+        val localNameTokens = localNameTokens(result, nameTokens)
+        val candidates = mutableListOf(localNameTokens, nameTokens)
+        if (result.type == LocationType.STOP) {
+            val withoutStationWords = localNameTokens.filter { it !in STATION_WORDS }
+            if (withoutStationWords.isNotEmpty() && withoutStationWords.size < localNameTokens.size) {
+                candidates.add(withoutStationWords)
+            }
+        }
+        val phraseScore = candidates.maxOf { phraseScore(it, queryTokens) }
 
-        if (normalizedName == normalizedQuery) return 1.0
-        if (normalizedName.startsWith(normalizedQuery)) return 0.95
-        if (normalizedName.contains(normalizedQuery)) return 0.85
-
+        val areaTokens = result.areas.flatMap { tokenize(it.name) }.toSet()
         var matchTotal = 0.0
         for (queryToken in queryTokens) {
-            var best = 0.0
-            for (nameToken in nameTokens) {
-                best = maxOf(best, tokenSimilarity(queryToken, nameToken))
-                if (best == 1.0) break
+            val nameMatch = nameTokens.maxOfOrNull { tokenSimilarity(queryToken, it) } ?: 0.0
+            val areaMatch = areaTokens.maxOfOrNull { tokenSimilarity(queryToken, it) } ?: 0.0
+            matchTotal += max(nameMatch, 0.9 * areaMatch)
+        }
+        val coverageScore = LOOSE_MATCH_SCORE * matchTotal / queryTokens.size.toDouble()
+
+        return max(phraseScore, coverageScore)
+    }
+
+    private fun localNameTokens(result: SearchResult, nameTokens: List<String>): List<String> {
+        val commaIndex = result.name.indexOf(',')
+        if (commaIndex >= 0) {
+            val localTokens = tokenize(result.name.substring(commaIndex + 1))
+            if (localTokens.isNotEmpty()) return localTokens
+        }
+
+        for (area in result.areas) {
+            val areaTokens = tokenize(area.name)
+            if (areaTokens.isNotEmpty() && nameTokens.size > areaTokens.size &&
+                nameTokens.subList(0, areaTokens.size) == areaTokens
+            ) {
+                return nameTokens.drop(areaTokens.size)
             }
-            matchTotal += best
         }
 
-        val coverageScore = matchTotal / queryTokens.size.toDouble()
+        return nameTokens
+    }
 
-        val firstQueryToken = queryTokens.first()
-        val firstNameToken = nameTokens.first()
-        if (firstNameToken.startsWith(firstQueryToken)) {
-            return minOf(1.0, coverageScore + 0.05)
+    private fun phraseScore(candidate: List<String>, queryTokens: List<String>): Double {
+        if (candidate.isEmpty()) return 0.0
+
+        val orderedQueryTokens = houseNumberLast(queryTokens)
+        val candidatePhrase = " " + candidate.joinToString(" ") + " "
+        val queryPhrase = " " + orderedQueryTokens.joinToString(" ")
+        val endsWithNumber = orderedQueryTokens.lastOrNull()?.let(::isNumber) ?: false
+        val boundedQueryPhrase = if (endsWithNumber) "$queryPhrase " else queryPhrase
+
+        if (candidatePhrase == "$queryPhrase ") return 1.0
+        if (candidatePhrase.startsWith(boundedQueryPhrase)) return 0.95
+        if (candidatePhrase.contains(boundedQueryPhrase)) return LOOSE_MATCH_SCORE
+
+        val candidateText = candidate.joinToString(" ")
+        val queryText = orderedQueryTokens.joinToString(" ")
+        if (!containsDigit(candidateText) && !containsDigit(queryText) && isTypo(candidateText, queryText)) {
+            return 0.85
         }
+        return 0.0
+    }
 
-        return coverageScore
+    private fun houseNumberLast(tokens: List<String>): List<String> {
+        if (tokens.size <= 1 || !isNumber(tokens.first())) return tokens
+        return tokens.drop(1) + tokens.first()
     }
 
     private fun tokenSimilarity(query: String, candidate: String): Double = when {
         candidate == query -> 1.0
-        candidate.startsWith(query) -> 0.9
-        query.startsWith(candidate) -> 0.75
-        candidate.contains(query) -> 0.6
+        candidate.startsWith(query) -> if (query.length >= 2 && !isNumber(query)) 0.9 else 0.5
+        isTypo(candidate, query) -> 0.7
         else -> 0.0
     }
 
-    private fun proximityScore(distance: Double): Double {
-        if (distance >= Double.MAX_VALUE) return 0.0
-        return PROXIMITY_HALF_DISTANCE / (PROXIMITY_HALF_DISTANCE + distance)
+    private fun isTypo(candidate: String, query: String): Boolean {
+        if (query.length < 4 || candidate.length < 3 || isNumber(query)) return false
+
+        val allowedEdits = if (query.length >= 8) 2 else 1
+        if (abs(candidate.length - query.length) > allowedEdits) return false
+
+        return editDistance(query, candidate, allowedEdits) <= allowedEdits
     }
+
+    private fun editDistance(lhs: String, rhs: String, limit: Int): Int {
+        var previousPrevious = IntArray(rhs.length + 1)
+        var previous = IntArray(rhs.length + 1) { it }
+        var current = IntArray(rhs.length + 1)
+
+        for (i in 1..lhs.length) {
+            current[0] = i
+            var rowMinimum = current[0]
+            for (j in 1..rhs.length) {
+                val cost = if (lhs[i - 1] == rhs[j - 1]) 0 else 1
+                current[j] = min(min(previous[j] + 1, current[j - 1] + 1), previous[j - 1] + cost)
+                if (i > 1 && j > 1 && lhs[i - 1] == rhs[j - 2] && lhs[i - 2] == rhs[j - 1]) {
+                    current[j] = min(current[j], previousPrevious[j - 2] + 1)
+                }
+                rowMinimum = min(rowMinimum, current[j])
+            }
+            if (rowMinimum > limit) return rowMinimum
+            val recycled = previousPrevious
+            previousPrevious = previous
+            previous = current
+            current = recycled
+        }
+
+        return previous[rhs.length]
+    }
+
+    private fun importance(result: SearchResult): Double = when {
+        result.modes.any { it in HUB_MODES } -> 1.0
+        result.servesMainlineRail -> 0.5
+        else -> 0.0
+    }
+
+    private fun containsDigit(text: String): Boolean = text.any { it.isDigit() }
+
+    private fun isNumber(token: String): Boolean = token.isNotEmpty() && token.all { it.isDigit() }
+
+    private fun proximityScore(distance: Double, hasUserLocation: Boolean): Double {
+        if (!hasUserLocation) return 0.0
+        if (distance >= Double.MAX_VALUE) return UNKNOWN_PLACE_PROXIMITY
+
+        val kilometers = distance / 1_000
+        return max(0.0, 1 - log10(1 + kilometers) / log10(1 + PROXIMITY_HORIZON_KILOMETERS))
+    }
+
+    private fun sourceRankScore(rank: Int): Double = 1 / (1 + 0.35 * rank)
 
     private fun distance(userLat: Double?, userLon: Double?, result: SearchResult): Double {
         if (userLat == null || userLon == null) return Double.MAX_VALUE
@@ -126,11 +219,18 @@ class SearchResultScorer {
     )
 
     companion object {
-        private const val PROXIMITY_HALF_DISTANCE = 4_000.0
+        private const val TEXT_WEIGHT = 0.55
+        private const val PROXIMITY_WEIGHT = 0.22
+        private const val SOURCE_RANK_WEIGHT = 0.15
+        private const val STOP_WEIGHT = 0.08
+        private const val IMPORTANCE_WEIGHT = 0.08
+        private const val LOOSE_MATCH_SCORE = 0.75
+        private const val PROXIMITY_HORIZON_KILOMETERS = 300.0
+        private const val UNKNOWN_PLACE_PROXIMITY = 0.3
 
-        private const val TEXT_WEIGHT = 0.60
-        private const val PROXIMITY_WEIGHT = 0.25
-        private const val STOP_RELEVANCE_WEIGHT = 0.20
+        private val STATION_WORDS = setOf("gare", "bahnhof", "stazione", "station", "hb", "hbf", "bf")
+
+        private val HUB_MODES = setOf(TransportationMode.LONG_DISTANCE, TransportationMode.HIGHSPEED_RAIL)
 
         private val TOKEN_SYNONYMS: Map<String, String> = mapOf(
             "st" to "saint", "ste" to "sainte", "sts" to "saints", "stes" to "saintes",
