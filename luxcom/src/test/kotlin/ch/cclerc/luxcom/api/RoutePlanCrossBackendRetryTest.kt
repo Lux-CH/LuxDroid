@@ -86,7 +86,7 @@ class RoutePlanCrossBackendRetryTest {
         val primaryRequest = primary.takeRequest(2, TimeUnit.SECONDS)
         val backupRequest = backup.takeRequest(2, TimeUnit.SECONDS)
         assertEquals(primaryRequest?.path, backupRequest?.path)
-        assertTrue(backupRequest?.path?.startsWith("/v4/plan?") == true)
+        assertTrue(backupRequest?.path?.startsWith("/v6/plan?") == true)
         assertFalse(ApiState.isUsingBackup)
     }
 

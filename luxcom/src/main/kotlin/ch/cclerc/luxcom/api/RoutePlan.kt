@@ -6,7 +6,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 private const val PLAN_ENDPOINT = "/plan"
-private const val PLAN_API_VERSION = "v4"
+private const val PLAN_API_VERSION = "v6"
 
 suspend fun getRoute(options: RouteOptions): Trip {
     val queryItems = mutableListOf(
@@ -19,9 +19,12 @@ suspend fun getRoute(options: RouteOptions): Trip {
         "useRoutedTransfers" to (options.useRoutedTransfers ?: true).toString(),
         "maxMatchingDistance" to (options.maxMatchingDistance ?: 250).toString(),
         "detailedTransfers" to (options.detailedTransfers ?: true).toString(),
-        "timetableView" to options.timetableView.toString(),
-        "fastestDirectFactor" to "1.5"
+        "timetableView" to options.timetableView.toString()
     )
+
+    if (options.via.isNullOrEmpty()) {
+        queryItems.add("fastestDirectFactor" to "1.5")
+    }
 
     val time = options.time
     if (time != null) {
@@ -30,22 +33,17 @@ suspend fun getRoute(options: RouteOptions): Trip {
 
     val via = options.via
     if (!via.isNullOrEmpty()) {
-        for (viaStop in via) {
-            queryItems.add("via" to viaStop)
-        }
-    }
+        queryItems.add("via" to via.take(2).joinToString(","))
 
-    if (options.viaMinimumStay.isNotEmpty()) {
-        for (stayTime in options.viaMinimumStay) {
-            queryItems.add("viaMinimumStay" to stayTime.toString())
+        if (options.viaMinimumStay.isNotEmpty()) {
+            val stays = options.viaMinimumStay.take(via.size).map { it.toString() }
+            queryItems.add("viaMinimumStay" to stays.joinToString(","))
         }
     }
 
     val transitModes = options.transitModes
     if (!transitModes.isNullOrEmpty()) {
-        for (m in transitModes) {
-            queryItems.add("transitModes" to m.rawValue)
-        }
+        queryItems.add("transitModes" to transitModes.joinToString(",") { it.rawValue })
     }
 
     val numItineraries = options.numItineraries

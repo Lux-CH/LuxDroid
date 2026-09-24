@@ -2,6 +2,7 @@ package ch.cclerc.luxcom.api
 
 import ch.cclerc.luxcom.map.getMapStops
 import ch.cclerc.luxcom.model.PedestrianProfile
+import ch.cclerc.luxcom.model.TransportationMode
 import ch.cclerc.luxcom.model.trip.RouteOptions
 import ch.cclerc.luxcom.net.ApiClient
 import ch.cclerc.luxcom.net.ApiState
@@ -113,7 +114,7 @@ class QueryBuildingTest {
         server.enqueue(MockResponse().setBody(emptyTripJson))
         getRoute(defaultRouteOptions())
         assertEquals(
-            "/v4/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
+            "/v6/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
                 "&additionalTransferTime=5&pedestrianProfile=FOOT&useRoutedTransfers=true" +
                 "&maxMatchingDistance=250&detailedTransfers=true&timetableView=true" +
                 "&fastestDirectFactor=1.5",
@@ -126,7 +127,7 @@ class QueryBuildingTest {
         server.enqueue(MockResponse().setBody(emptyTripJson))
         getRoute(defaultRouteOptions(pedestrianSpeed = 1.2))
         assertEquals(
-            "/v4/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
+            "/v6/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
                 "&additionalTransferTime=5&pedestrianProfile=FOOT&useRoutedTransfers=true" +
                 "&maxMatchingDistance=250&detailedTransfers=true&timetableView=true" +
                 "&fastestDirectFactor=1.5",
@@ -139,10 +140,29 @@ class QueryBuildingTest {
         server.enqueue(MockResponse().setBody(emptyTripJson))
         getRoute(defaultRouteOptions(pedestrianSpeed = 1.0))
         assertEquals(
-            "/v4/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
+            "/v6/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
                 "&additionalTransferTime=5&pedestrianProfile=FOOT&useRoutedTransfers=true" +
                 "&maxMatchingDistance=250&detailedTransfers=true&timetableView=true" +
                 "&fastestDirectFactor=1.5&pedestrianSpeed=1.0",
+            recordedPath()
+        )
+    }
+
+    @Test
+    fun planJoinsViasAndDropsDirectFactor() = runBlocking {
+        server.enqueue(MockResponse().setBody(emptyTripJson))
+        getRoute(
+            defaultRouteOptions().copy(
+                via = listOf("v1", "v2", "v3"),
+                viaMinimumStay = listOf(0, 10, 5),
+                transitModes = listOf(TransportationMode.TRAM, TransportationMode.BUS)
+            )
+        )
+        assertEquals(
+            "/v6/plan?fromPlace=from1&toPlace=to1&arriveBy=false&maxTransfers=2" +
+                "&additionalTransferTime=5&pedestrianProfile=FOOT&useRoutedTransfers=true" +
+                "&maxMatchingDistance=250&detailedTransfers=true&timetableView=true" +
+                "&via=v1%2Cv2&viaMinimumStay=0%2C10%2C5&transitModes=TRAM%2CBUS",
             recordedPath()
         )
     }
