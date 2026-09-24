@@ -7,14 +7,19 @@ import ch.cclerc.luxapp.data.Progress
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.search.RouteOptionsStore
 import ch.cclerc.luxapp.core.LocationService
-import ch.cclerc.luxcom.api.geocode
+import ch.cclerc.luxapp.domain.routing.PlannedRoute
+import ch.cclerc.luxapp.domain.routing.PlannedVia
+import ch.cclerc.luxapp.domain.routing.StitchedRoutePlanner
+import ch.cclerc.luxapp.domain.search.HybridLocationSearchService
 import ch.cclerc.luxcom.api.getRoute
+import ch.cclerc.luxcom.api.reverseGeocode
 import ch.cclerc.luxcom.geo.calculateDistance
 import ch.cclerc.luxcom.model.LocationType
 import ch.cclerc.luxcom.model.SearchResult
 import ch.cclerc.luxcom.model.trip.Itinerary
 import ch.cclerc.luxcom.model.trip.RouteOptions
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -67,10 +72,32 @@ enum class DepartureType(val label: String) {
     val id: String get() = label
 }
 
-enum class SearchField {
-    FROM,
-    TO,
-    NONE
+sealed interface SearchField {
+    data object FROM : SearchField
+    data object TO : SearchField
+    data object NONE : SearchField
+    data class VIA(val id: String) : SearchField
+
+    val isVia: Boolean get() = this is VIA
+}
+
+data class ViaStop(
+    val id: String = UUID.randomUUID().toString(),
+    val location: SearchResult? = null,
+    val minimumStay: Int = 0
+)
+
+enum class RoutePreset(val title: String, val symbol: String) {
+    FASTEST("Le plus rapide", "bolt.fill"),
+    FEWER_TRANSFERS("Moins de changements", "arrow.triangle.swap"),
+    LESS_WALKING("Moins de marche", "figure.walk"),
+    RELAXED("Correspondances larges", "tortoise.fill");
+
+    fun maxTransfers(base: Int): Int = if (this == FEWER_TRANSFERS) min(base, 1) else base
+
+    fun transferBuffer(base: Int): Int = if (this == RELAXED) max(base, 5) else base
+
+    fun maxAccessWalk(base: Int?): Int? = if (this == LESS_WALKING) min(base ?: 900, 300) else base
 }
 
 class TripsSearchViewModel : ViewModel() {
@@ -86,6 +113,23 @@ class TripsSearchViewModel : ViewModel() {
 
     private val _toQuery = MutableStateFlow("")
     val toQuery: StateFlow<String> = _toQuery.asStateFlow()
+
+    private val _viaQuery = MutableStateFlow("")
+    val viaQuery: StateFlow<String> = _viaQuery.asStateFlow()
+
+    private val _vias = MutableStateFlow<List<ViaStop>>(emptyList())
+    val vias: StateFlow<List<ViaStop>> = _vias.asStateFlow()
+
+    val maxVias = 2
+
+    private val _routePreset = MutableStateFlow(
+        RoutePreset.entries.firstOrNull { it.name == Settings.prefs.getString(ROUTE_PRESET_KEY, null) }
+            ?: RoutePreset.FASTEST
+    )
+    val routePreset: StateFlow<RoutePreset> = _routePreset.asStateFlow()
+
+    private val _isPresetFallback = MutableStateFlow(false)
+    val isPresetFallback: StateFlow<Boolean> = _isPresetFallback.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -105,7 +149,7 @@ class TripsSearchViewModel : ViewModel() {
     private val _toLocation = MutableStateFlow<SelectedLocation?>(null)
     val toLocation: StateFlow<SelectedLocation?> = _toLocation.asStateFlow()
 
-    private val _activeField = MutableStateFlow(SearchField.FROM)
+    private val _activeField = MutableStateFlow<SearchField>(SearchField.FROM)
     val activeField: StateFlow<SearchField> = _activeField.asStateFlow()
 
     private val _trips = MutableStateFlow<List<Itinerary>>(emptyList())
@@ -159,7 +203,7 @@ class TripsSearchViewModel : ViewModel() {
     private val _showPastDateWarning = MutableStateFlow(false)
     val showPastDateWarning: StateFlow<Boolean> = _showPastDateWarning.asStateFlow()
 
-    var placeSearch: (suspend (String, Double?, Double?) -> List<SearchResult>)? = null
+    var searchService: HybridLocationSearchService? = null
     var resolvePlace: (suspend (SearchResult) -> SearchResult)? = null
 
     private var allTrips: List<Itinerary> = emptyList()
@@ -185,8 +229,15 @@ class TripsSearchViewModel : ViewModel() {
         get() = _activeField.value != SearchField.NONE &&
             (_fromQuery.value.length >= MIN_SEARCH_CHARACTERS ||
                 _toQuery.value.length >= MIN_SEARCH_CHARACTERS ||
+                _viaQuery.value.length >= MIN_SEARCH_CHARACTERS ||
                 _searchResults.value.isNotEmpty() ||
                 _showMinCharactersMessage.value)
+
+    val canAddVia: Boolean
+        get() = _vias.value.size < maxVias && _vias.value.none { it.location == null }
+
+    val allQueriesEmpty: Boolean
+        get() = _fromQuery.value.isEmpty() && _toQuery.value.isEmpty() && _viaQuery.value.isEmpty()
 
     val canLoadEarlier: Boolean get() = currentPageIndex > 0 || hasMoreEarlier
 
@@ -248,9 +299,10 @@ class TripsSearchViewModel : ViewModel() {
 
     fun resetSearch() {
         _isLoading.value = false
-        when (_activeField.value) {
+        when (val field = _activeField.value) {
             SearchField.FROM -> setQuery(SearchField.FROM, "")
             SearchField.TO -> setQuery(SearchField.TO, "")
+            is SearchField.VIA -> setQuery(field, "")
             SearchField.NONE -> Unit
         }
         _showMinCharactersMessage.value = false
@@ -259,6 +311,9 @@ class TripsSearchViewModel : ViewModel() {
 
     fun setActiveSearchField(field: SearchField) {
         _activeField.value = field
+        if (field.isVia) {
+            _showTripResults.value = false
+        }
         when (field) {
             SearchField.FROM -> {
                 _searchQuery.value = _fromQuery.value
@@ -267,6 +322,10 @@ class TripsSearchViewModel : ViewModel() {
             SearchField.TO -> {
                 _searchQuery.value = _toQuery.value
                 performSearch(_toQuery.value)
+            }
+            is SearchField.VIA -> {
+                _searchQuery.value = _viaQuery.value
+                performSearch(_viaQuery.value)
             }
             SearchField.NONE -> {
                 _searchQuery.value = ""
@@ -281,6 +340,9 @@ class TripsSearchViewModel : ViewModel() {
     }
 
     fun onChange(newSearchQuery: String) {
+        if (newSearchQuery.isNotEmpty()) {
+            _showTripResults.value = false
+        }
         if (newSearchQuery.isEmpty()) {
             cancelBackgroundTasks()
             _isLoading.value = false
@@ -301,6 +363,7 @@ class TripsSearchViewModel : ViewModel() {
         when (field) {
             SearchField.FROM -> _fromQuery.value = value
             SearchField.TO -> _toQuery.value = value
+            is SearchField.VIA -> _viaQuery.value = value
             SearchField.NONE -> Unit
         }
         if (field == _activeField.value) {
@@ -341,97 +404,22 @@ class TripsSearchViewModel : ViewModel() {
         }
     }
 
-    private suspend fun hybridSearch(query: String, lat: Double?, lon: Double?): List<SearchResult> =
-        coroutineScope {
-            val stops = async { searchStops(query, lat, lon) }
-            val places = async { searchPlaces(query, lat, lon) }
-
-            val stopResults = stops.await()
-            var placeResults = places.await()
-
-            if (placeResults.isEmpty()) {
-                placeResults = searchLuxFallbackAll(query, lat, lon)
-            }
-
-            deduplicatedByNameAndProximity(deduplicatedById(stopResults + placeResults))
+    private suspend fun hybridSearch(query: String, lat: Double?, lon: Double?): List<SearchResult> {
+        val service = searchService ?: HybridLocationSearchService().also { searchService = it }
+        return try {
+            service.search(query, lat, lon)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            emptyList()
         }
-
-    private suspend fun searchStops(query: String, lat: Double?, lon: Double?): List<SearchResult> =
-        runCatchingCancellable {
-            if (lat != null && lon != null) {
-                geocode(text = query, type = LocationType.STOP, place = lat to lon, placeBias = 2)
-            } else {
-                geocode(text = query, type = LocationType.STOP)
-            }
-        }
-
-    private suspend fun searchLuxFallbackAll(query: String, lat: Double?, lon: Double?): List<SearchResult> =
-        runCatchingCancellable {
-            if (lat != null && lon != null) {
-                geocode(text = query, place = lat to lon, placeBias = 2)
-            } else {
-                geocode(text = query)
-            }
-        }
-
-    private suspend fun searchPlaces(query: String, lat: Double?, lon: Double?): List<SearchResult> {
-        val provider = placeSearch ?: return emptyList()
-        return runCatchingCancellable { provider(query, lat, lon) }
-    }
-
-    private suspend inline fun runCatchingCancellable(
-        block: () -> List<SearchResult>
-    ): List<SearchResult> = try {
-        block()
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (error: Throwable) {
-        emptyList()
     }
 
     private fun currentSearchQuery(): String = when (_activeField.value) {
         SearchField.FROM -> _fromQuery.value
         SearchField.TO -> _toQuery.value
+        is SearchField.VIA -> _viaQuery.value
         SearchField.NONE -> ""
-    }
-
-    private fun deduplicatedById(results: List<SearchResult>): List<SearchResult> {
-        val seen = mutableSetOf<String>()
-        return results.filter { seen.add(it.id) }
-    }
-
-    private fun deduplicatedByNameAndProximity(results: List<SearchResult>): List<SearchResult> {
-        val keptByName = mutableMapOf<String, MutableList<SearchResult>>()
-        val deduplicated = mutableListOf<SearchResult>()
-
-        for (result in results) {
-            val name = normalizedName(result.name)
-            if (name.isEmpty()) {
-                deduplicated.add(result)
-                continue
-            }
-
-            val existing = keptByName[name]
-            val isDuplicate = existing?.any { withinDuplicateThreshold(it, result) } == true
-            if (isDuplicate) continue
-
-            keptByName.getOrPut(name) { mutableListOf() }.add(result)
-            deduplicated.add(result)
-        }
-
-        return deduplicated
-    }
-
-    private fun normalizedName(name: String): String = name
-        .lowercase()
-        .split(Regex("[^\\p{L}\\p{N}]+"))
-        .filter { it.isNotEmpty() }
-        .joinToString(" ")
-
-    private fun withinDuplicateThreshold(lhs: SearchResult, rhs: SearchResult): Boolean {
-        if (lhs.lat == 0.0 && lhs.lon == 0.0) return false
-        if (rhs.lat == 0.0 && rhs.lon == 0.0) return false
-        return calculateDistance(lhs.lat, lhs.lon, rhs.lat, rhs.lon) <= DUPLICATE_DISTANCE_M
     }
 
     fun cancelBackgroundTasks() {
@@ -452,6 +440,13 @@ class TripsSearchViewModel : ViewModel() {
     }
 
     private fun applySelectedLocation(location: SearchResult) {
+        val active = _activeField.value
+        if (active is SearchField.VIA) {
+            addToHistory(location)
+            _searchResults.value = emptyList()
+            applyViaStop(location, active.id)
+            return
+        }
         addToHistory(location)
         when (_activeField.value) {
             SearchField.FROM -> {
@@ -466,12 +461,28 @@ class TripsSearchViewModel : ViewModel() {
                 setActiveFieldSilently(SearchField.NONE)
                 searchTrips()
             }
-            SearchField.NONE -> Unit
+            is SearchField.VIA, SearchField.NONE -> Unit
         }
         _searchResults.value = emptyList()
     }
 
     fun selectCurrentPosition() {
+        val active = _activeField.value
+        if (active is SearchField.VIA) {
+            val coordinates = LocationService.location.value ?: return
+            _searchResults.value = emptyList()
+            viewModelScope.launch {
+                val stop = try {
+                    reverseGeocode(coordinates.latitude, coordinates.longitude, LocationType.STOP).firstOrNull()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Throwable) {
+                    null
+                }
+                applyViaStop(stop, active.id)
+            }
+            return
+        }
         when (_activeField.value) {
             SearchField.FROM -> {
                 _fromLocation.value = SelectedLocation.CurrentPosition
@@ -485,7 +496,7 @@ class TripsSearchViewModel : ViewModel() {
                 setActiveFieldSilently(SearchField.NONE)
                 searchTrips()
             }
-            SearchField.NONE -> Unit
+            is SearchField.VIA, SearchField.NONE -> Unit
         }
         _searchResults.value = emptyList()
     }
@@ -511,6 +522,7 @@ class TripsSearchViewModel : ViewModel() {
         val previousFrom = _fromLocation.value
         _fromLocation.value = _toLocation.value
         _toLocation.value = previousFrom
+        _vias.value = _vias.value.reversed()
 
         if (_fromLocation.value != null && _toLocation.value != null) {
             searchTrips()
@@ -525,6 +537,73 @@ class TripsSearchViewModel : ViewModel() {
         _directs.value = emptyList()
         allTrips = emptyList()
         currentPageIndex = 0
+    }
+
+    fun addVia() {
+        if (!canAddVia) return
+        val via = ViaStop()
+        _vias.value = _vias.value + via
+        _viaQuery.value = ""
+        _showTripResults.value = false
+        setActiveSearchField(SearchField.VIA(via.id))
+    }
+
+    fun removeVia(id: String) {
+        val hadLocation = _vias.value.firstOrNull { it.id == id }?.location != null
+        _vias.value = _vias.value.filterNot { it.id == id }
+        if (_activeField.value == SearchField.VIA(id)) {
+            _viaQuery.value = ""
+            _searchResults.value = emptyList()
+            _showMinCharactersMessage.value = false
+            setActiveFieldSilently(fieldAfterVia())
+        }
+        if (hadLocation) {
+            refreshTripsIfReady()
+        } else if (_fromLocation.value != null && _toLocation.value != null) {
+            _showTripResults.value = true
+        }
+    }
+
+    fun setViaMinimumStay(minutes: Int, id: String) {
+        val index = _vias.value.indexOfFirst { it.id == id }
+        if (index < 0 || _vias.value[index].minimumStay == minutes) return
+        _vias.value = _vias.value.toMutableList().also { it[index] = it[index].copy(minimumStay = minutes) }
+        if (_vias.value[index].location != null) {
+            refreshTripsIfReady()
+        }
+    }
+
+    fun setRoutePreset(preset: RoutePreset) {
+        if (preset == _routePreset.value) return
+        _routePreset.value = preset
+        Settings.prefs.edit().putString(ROUTE_PRESET_KEY, preset.name).apply()
+        refreshTripsIfReady()
+    }
+
+    private fun refreshTripsIfReady() {
+        if (_fromLocation.value != null && _toLocation.value != null) {
+            searchTrips()
+        }
+    }
+
+    private fun fieldAfterVia(): SearchField = when {
+        _toLocation.value == null -> SearchField.TO
+        _fromLocation.value == null -> SearchField.FROM
+        else -> SearchField.NONE
+    }
+
+    private fun applyViaStop(stop: SearchResult?, viaId: String) {
+        val index = _vias.value.indexOfFirst { it.id == viaId }
+        if (index < 0) return
+        if (stop == null) {
+            _errorMessage.value = "Aucun arrêt trouvé à proximité de ce lieu"
+            return
+        }
+        _vias.value = _vias.value.toMutableList().also { it[index] = it[index].copy(location = stop) }
+        _viaQuery.value = ""
+        _searchResults.value = emptyList()
+        setActiveFieldSilently(fieldAfterVia())
+        refreshTripsIfReady()
     }
 
     fun isCurrentPositionAvailable(): Boolean = LocationService.location.value != null
@@ -562,21 +641,53 @@ class TripsSearchViewModel : ViewModel() {
         updatePastDateWarning()
 
         val current = _routeOptions.value
-        val options = current.copy(
+        val plannedVias = _vias.value.mapNotNull { via ->
+            via.location?.let { PlannedVia(it, via.minimumStay) }
+        }
+        val needsStitching = StitchedRoutePlanner.needsStitching(plannedVias)
+        val viaIds = if (needsStitching) emptyList() else plannedVias.map { it.location.id }
+        val viaStays = if (needsStitching) emptyList() else plannedVias.map { it.stay }
+        val timeForRequest = _selectedDate.value ?: Instant.now()
+
+        fun options(preset: RoutePreset) = current.copy(
             from = from,
             to = to,
-            time = _selectedDate.value ?: Instant.now(),
+            via = viaIds.ifEmpty { null },
+            viaMinimumStay = if (viaStays.any { it > 0 }) viaStays else emptyList(),
+            time = timeForRequest,
             arriveBy = _departureType.value == DepartureType.ARRIVE_BY,
+            maxTransfers = preset.maxTransfers(current.maxTransfers),
+            minTransferTime = preset.transferBuffer(current.minTransferTime),
             numItineraries = 5,
             pageCursor = pageCursor,
             timetableView = true,
+            maxPreTransitTime = preset.maxAccessWalk(current.maxPreTransitTime),
+            maxPostTransitTime = preset.maxAccessWalk(current.maxPostTransitTime),
             numLegAlternatives = 0
         )
+
+        suspend fun plan(preset: RoutePreset): PlannedRoute = if (needsStitching) {
+            StitchedRoutePlanner.plan(options(preset), plannedVias)
+        } else {
+            PlannedRoute(getRoute(options(preset)))
+        }
+
+        val preset = if (pageCursor != null && _isPresetFallback.value) RoutePreset.FASTEST else _routePreset.value
 
         tripsJob?.cancel()
         tripsJob = viewModelScope.launch {
             try {
-                val result = getRoute(options)
+                var result = plan(preset)
+                var fellBack = false
+                if (pageCursor == null && preset != RoutePreset.FASTEST &&
+                    result.itineraries.isEmpty() && result.direct.isEmpty()
+                ) {
+                    result = plan(RoutePreset.FASTEST)
+                    fellBack = true
+                }
+                if (pageCursor == null) {
+                    _isPresetFallback.value = fellBack
+                }
 
                 val loadingEarlier = _isLoadingEarlier.value
                 val loadingLater = _isLoadingLater.value
@@ -597,7 +708,7 @@ class TripsSearchViewModel : ViewModel() {
                     }
                 }
 
-                _directs.value = result.direct
+                _directs.value = if (plannedVias.isEmpty()) result.direct else emptyList()
 
                 if (loadingEarlier) {
                     _previousPageCursor.value = result.previousPageCursor
@@ -715,6 +826,16 @@ class TripsSearchViewModel : ViewModel() {
         addToHistory(result)
         val location = SelectedLocation.SearchResultLocation(result)
 
+        if (targetField is SearchField.VIA) {
+            _fromQuery.value = ""
+            _toQuery.value = ""
+            _searchResults.value = emptyList()
+            _showMinCharactersMessage.value = false
+            _isLoading.value = false
+            applyViaStop(result, targetField.id)
+            return
+        }
+
         if (_fromLocation.value == null && _toLocation.value != null) {
             _fromLocation.value = location
         } else if (_toLocation.value == null && _fromLocation.value != null) {
@@ -757,10 +878,13 @@ class TripsSearchViewModel : ViewModel() {
 
         _fromQuery.value = ""
         _toQuery.value = ""
+        _viaQuery.value = ""
+        _vias.value = emptyList()
         _searchQuery.value = ""
         _searchResults.value = emptyList()
         _showMinCharactersMessage.value = false
         _isLoading.value = false
+        _isPresetFallback.value = false
         _fromLocation.value = null
         _toLocation.value = null
         _activeField.value = SearchField.FROM
@@ -791,6 +915,7 @@ class TripsSearchViewModel : ViewModel() {
         const val TAG = "TripsSearchViewModel"
         const val TRIP_SEARCH_ERROR = "Erreur: la recherche d'itinéraires a échoué"
         const val HISTORY_KEY = "tripSearchHistory"
+        const val ROUTE_PRESET_KEY = "routePreset"
         const val MAX_HISTORY_ITEMS = 20
         const val MIN_SEARCH_CHARACTERS = 3
         const val SEARCH_DEBOUNCE_MS = 125L

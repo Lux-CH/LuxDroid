@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ch.cclerc.luxapp.core.HapticFeedback
@@ -51,7 +52,8 @@ fun TripSearchBar(
     onRemoveTag: () -> Unit = {},
     onFocused: () -> Unit = {},
     focusRequester: FocusRequester? = null,
-    shortcutSymbol: (SearchResult) -> String? = { null }
+    shortcutSymbol: (SearchResult) -> String? = { null },
+    clearButtonInset: Dp = 35.dp
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
@@ -128,7 +130,7 @@ fun TripSearchBar(
             ) {
                 Box(
                     Modifier
-                        .padding(end = 35.dp)
+                        .padding(end = clearButtonInset)
                         .scaleClickable(haptic = false) {
                             onSearchTextChange("")
                             onClear()

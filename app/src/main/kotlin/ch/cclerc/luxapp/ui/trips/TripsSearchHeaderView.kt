@@ -2,6 +2,7 @@ package ch.cclerc.luxapp.ui.trips
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,12 +28,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -41,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,9 +70,12 @@ import ch.cclerc.luxapp.ui.theme.LuxMaterials
 import ch.cclerc.luxapp.ui.theme.LuxShapes
 import ch.cclerc.luxapp.ui.theme.LuxSprings
 import ch.cclerc.luxapp.ui.theme.LuxTheme
+import ch.cclerc.luxapp.ui.theme.LuxTypography
 import ch.cclerc.luxapp.ui.theme.iosShadow
 import ch.cclerc.luxapp.viewmodel.DepartureType
 import ch.cclerc.luxapp.viewmodel.SearchField
+import ch.cclerc.luxapp.viewmodel.SelectedLocation
+import ch.cclerc.luxapp.viewmodel.ViaStop
 import ch.cclerc.luxapp.viewmodel.TripsSearchViewModel
 import ch.cclerc.luxcom.model.SearchResult
 import java.time.Instant
@@ -106,6 +116,11 @@ fun TripsSearchHeaderView(
     val showPastDateWarning by viewModel.showPastDateWarning.collectAsState()
     val hasCustomSettings by viewModel.hasCustomSettings.collectAsState()
     val showSettings by viewModel.showSettings.collectAsState()
+    val viaQuery by viewModel.viaQuery.collectAsState()
+    val vias by viewModel.vias.collectAsState()
+    val activeField by viewModel.activeField.collectAsState()
+    val canAddVia = vias.size < viewModel.maxVias && vias.none { it.location == null }
+    val viaFocusRequester = remember { FocusRequester() }
 
     val headerOffset = remember { Animatable(-100f) }
     val contentOpacity = remember { Animatable(0f) }
@@ -252,6 +267,15 @@ fun TripsSearchHeaderView(
             toSelected = toLocation != null,
             contentOpacity = contentOpacity.value,
             isSwapping = isSwapping,
+            viaCount = vias.size,
+            canAddVia = canAddVia,
+            onAddVia = {
+                viewModel.addVia()
+                scope.launch {
+                    delay(150)
+                    runCatching { viaFocusRequester.requestFocus() }
+                }
+            },
             onSwap = {
                 if (fromLocation == null && toLocation == null) return@InputCard
                 HapticFeedback.lightImpact()
@@ -273,9 +297,27 @@ fun TripsSearchHeaderView(
                     onRemoveTag = { viewModel.removeFromLocation() },
                     onFocused = { viewModel.setActiveSearchField(SearchField.FROM) },
                     shortcutSymbol = shortcutSymbol,
+                    clearButtonInset = 0.dp,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             },
+            viaRow = { index ->
+                val via = vias[index]
+                ViaRowContent(
+                    via = via,
+                    viaQuery = viaQuery,
+                    isActive = activeField == SearchField.VIA(via.id),
+                    focusRequester = viaFocusRequester,
+                    shortcutSymbol = shortcutSymbol,
+                    onQueryChange = { viewModel.onQueryChange(it) },
+                    onSearch = { viewModel.performSearch(viewModel.viaQuery.value) },
+                    onClear = { viewModel.resetSearch() },
+                    onFocused = { viewModel.setActiveSearchField(SearchField.VIA(via.id)) },
+                    onRemove = { viewModel.removeVia(via.id) },
+                    onStayChange = { minutes -> viewModel.setViaMinimumStay(minutes, via.id) }
+                )
+            },
+            viaKey = { index -> vias[index].id },
             toBar = {
                 TripSearchBar(
                     searchText = toQuery,
@@ -288,6 +330,7 @@ fun TripsSearchHeaderView(
                     onFocused = { viewModel.setActiveSearchField(SearchField.TO) },
                     shortcutSymbol = shortcutSymbol,
                     focusRequester = toFocusRequester,
+                    clearButtonInset = 0.dp,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
@@ -405,20 +448,50 @@ private fun HeaderChip(
     }
 }
 
+fun viaRowsHeight(count: Int): Dp = (count * VIA_ROW_HEIGHT).dp
+
+private const val VIA_ROW_HEIGHT = 49
+private val SwapButtonSize = 38.dp
+private val ViaButtonSize = 32.dp
+private val TrailingControlsSpacing = 6.dp
+private val TrailingControlsEdge = 6.dp
+private val viaStayOptions = listOf(5, 10, 15, 30, 45, 60, 90, 120)
+
+private fun trailingControlsInset(canAddVia: Boolean): Dp {
+    val controls = if (canAddVia) {
+        ViaButtonSize + TrailingControlsSpacing + SwapButtonSize
+    } else {
+        SwapButtonSize
+    }
+    return controls + TrailingControlsEdge + TrailingControlsSpacing
+}
+
 @Composable
 private fun InputCard(
     fromSelected: Boolean,
     toSelected: Boolean,
     contentOpacity: Float,
     isSwapping: Boolean,
+    viaCount: Int,
+    canAddVia: Boolean,
+    onAddVia: () -> Unit,
     onSwap: () -> Unit,
     fromBar: @Composable () -> Unit,
+    viaRow: @Composable RowScope.(Int) -> Unit,
+    viaKey: (Int) -> String,
     toBar: @Composable () -> Unit
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
     val shape = RoundedCornerShape(LuxShapes.r28)
     val swapEnabled = fromSelected || toSelected
+    val viaSpring = LuxSprings.springFor<Dp>(0.4, 0.82)
+    val viaHeight by animateDpAsState(viaRowsHeight(viaCount), viaSpring, label = "viaHeight")
+    val trailingInset by animateDpAsState(
+        trailingControlsInset(canAddVia),
+        LuxSprings.springFor(0.4, 0.8),
+        label = "trailingInset"
+    )
 
     val swapRotation by animateFloatAsState(
         targetValue = if (isSwapping) 180f else 0f,
@@ -434,7 +507,7 @@ private fun InputCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(98.dp)
+            .height(98.dp + viaHeight)
             .alpha(contentOpacity)
             .iosShadow(
                 color = Color.Black.copy(alpha = 0.05f),
@@ -449,7 +522,7 @@ private fun InputCard(
             Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 20.dp)
-                .size(width = 2.dp, height = 30.dp)
+                .size(width = 2.dp, height = 30.dp + viaHeight)
                 .background(
                     Brush.verticalGradient(
                         listOf(
@@ -466,7 +539,7 @@ private fun InputCard(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+                    .padding(start = 12.dp, end = trailingInset),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -482,11 +555,33 @@ private fun InputCard(
 
             HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
 
+            for (index in 0 until viaCount) {
+                key(viaKey(index)) {
+                    val appear = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) { appear.animateTo(1f, LuxSprings.springFor(0.4, 0.82)) }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                alpha = appear.value
+                                translationY = (1f - appear.value) * -12.dp.toPx()
+                            }
+                            .padding(start = 12.dp, end = trailingInset),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        viaRow(index)
+                    }
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+                    .padding(start = 12.dp, end = trailingInset),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -501,35 +596,194 @@ private fun InputCard(
             }
         }
 
-        Box(
+        Row(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 6.dp)
-                .size(38.dp)
-                .graphicsLayer {
-                    rotationZ = swapRotation
-                    scaleX = swapScale
-                    scaleY = swapScale
+                .padding(end = TrailingControlsEdge),
+            horizontalArrangement = Arrangement.spacedBy(TrailingControlsSpacing),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AnimatedVisibility(
+                visible = canAddVia,
+                enter = scaleIn(LuxSprings.springFor(0.4, 0.8), initialScale = 0.6f) + fadeIn(LuxSprings.springFor(0.4, 0.8)),
+                exit = scaleOut(LuxSprings.springFor(0.4, 0.8), targetScale = 0.6f) + fadeOut(LuxSprings.springFor(0.4, 0.8))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(ViaButtonSize)
+                        .iosShadow(
+                            color = Color.Black.copy(alpha = 0.08f),
+                            blurRadius = 6.dp,
+                            offsetY = 2.dp,
+                            shape = CircleShape
+                        )
+                        .background(colors.secondarySystemBackground, CircleShape)
+                        .background(LuxMaterials.capsuleFill(), CircleShape)
+                        .border(0.5.dp, colors.hairline, CircleShape)
+                        .clip(CircleShape)
+                        .scaleClickable { onAddVia() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    SFSymbol(
+                        name = "point.bottomleft.forward.to.point.topright.scurvepath",
+                        size = 13.sp,
+                        weight = 600,
+                        color = accent
+                    )
                 }
-                .iosShadow(
-                    color = Color.Black.copy(alpha = 0.08f),
-                    blurRadius = 6.dp,
-                    offsetY = 2.dp,
-                    shape = CircleShape
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(SwapButtonSize)
+                    .graphicsLayer {
+                        rotationZ = swapRotation
+                        scaleX = swapScale
+                        scaleY = swapScale
+                    }
+                    .iosShadow(
+                        color = Color.Black.copy(alpha = 0.08f),
+                        blurRadius = 6.dp,
+                        offsetY = 2.dp,
+                        shape = CircleShape
+                    )
+                    .background(colors.secondarySystemBackground, CircleShape)
+                    .background(LuxMaterials.capsuleFill(), CircleShape)
+                    .border(0.5.dp, colors.hairline, CircleShape)
+                    .clip(CircleShape)
+                    .scaleClickable(enabled = swapEnabled, haptic = false) { onSwap() },
+                contentAlignment = Alignment.Center
+            ) {
+                SFSymbol(
+                    name = "arrow.up.arrow.down",
+                    size = 16.sp,
+                    weight = 600,
+                    color = if (swapEnabled) accent else colors.tertiaryLabel
                 )
-                .background(colors.secondarySystemBackground, CircleShape)
-                .background(LuxMaterials.capsuleFill(), CircleShape)
-                .border(0.5.dp, colors.hairline, CircleShape)
-                .clip(CircleShape)
-                .scaleClickable(enabled = swapEnabled, haptic = false) { onSwap() },
-            contentAlignment = Alignment.Center
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.ViaRowContent(
+    via: ViaStop,
+    viaQuery: String,
+    isActive: Boolean,
+    focusRequester: FocusRequester,
+    shortcutSymbol: (SearchResult) -> String?,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+    onClear: () -> Unit,
+    onFocused: () -> Unit,
+    onRemove: () -> Unit,
+    onStayChange: (Int) -> Unit
+) {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    val location = via.location
+    val focusManager = LocalFocusManager.current
+
+    Box(Modifier.width(20.dp), contentAlignment = Alignment.Center) {
+        SFSymbol(
+            name = "smallcircle.filled.circle",
+            size = 16.sp,
+            color = if (location == null) colors.secondaryLabel else accent
+        )
+    }
+    Box(Modifier.weight(1f)) {
+        TripSearchBar(
+            searchText = viaQuery,
+            onSearchTextChange = onQueryChange,
+            placeholderText = "Via",
+            selectedLocation = location?.let { SelectedLocation.SearchResultLocation(it) },
+            onSearch = onSearch,
+            onClear = onClear,
+            onRemoveTag = onRemove,
+            onFocused = { if (location == null && !isActive) onFocused() },
+            focusRequester = if (location == null) focusRequester else null,
+            shortcutSymbol = shortcutSymbol,
+            clearButtonInset = 0.dp,
+            modifier = Modifier.padding(vertical = 8.dp)
+        )
+    }
+
+    if (location != null) {
+        ViaStayMenu(minimumStay = via.minimumStay, onStayChange = onStayChange)
+    } else {
+        Box(
+            modifier = Modifier.scaleClickable {
+                focusManager.clearFocus()
+                onRemove()
+            }
+        ) {
+            SFSymbol(name = "minus.circle.fill", size = 17.sp, color = colors.secondaryLabel)
+        }
+    }
+}
+
+@Composable
+private fun ViaStayMenu(minimumStay: Int, onStayChange: (Int) -> Unit) {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    var expanded by remember { mutableStateOf(false) }
+    val hasStay = minimumStay > 0
+    val tint = if (hasStay) accent else colors.secondaryLabel
+    val shape = RoundedCornerShape(50)
+
+    Box {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(if (hasStay) accent.copy(alpha = 0.12f) else colors.tertiarySystemFill, shape)
+                .scaleClickable(haptic = false) { expanded = true }
+                .padding(vertical = 5.dp, horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             SFSymbol(
-                name = "arrow.up.arrow.down",
-                size = 16.sp,
-                weight = 600,
-                color = if (swapEnabled) accent else colors.tertiaryLabel
+                name = if (hasStay) "hourglass" else "hourglass.badge.plus",
+                size = 12.sp,
+                color = tint,
+                weight = 600
             )
+            if (hasStay) {
+                Text(
+                    text = "$minimumStay min",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    style = LuxTypography.timeVariant(LuxTheme.type.caption),
+                    color = tint
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = colors.secondarySystemBackgroundElevated
+        ) {
+            (listOf(0) + viaStayOptions).forEach { minutes ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (minutes == 0) "Simple passage" else "Rester $minutes min",
+                            style = LuxTheme.type.body,
+                            color = colors.label
+                        )
+                    },
+                    trailingIcon = if (minutes == minimumStay) {
+                        { SFSymbol(name = "checkmark", size = 15.sp, color = accent) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        expanded = false
+                        HapticFeedback.lightImpact()
+                        onStayChange(minutes)
+                    }
+                )
+            }
         }
     }
 }

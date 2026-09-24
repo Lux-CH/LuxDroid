@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +37,7 @@ import ch.cclerc.luxapp.ui.stretchedShift
 import ch.cclerc.luxapp.ui.components.KeyboardToolbar
 import ch.cclerc.luxapp.ui.components.KeyboardToolbarShortcut
 import ch.cclerc.luxapp.ui.theme.LuxShapes
+import ch.cclerc.luxapp.ui.theme.LuxSprings
 import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.ui.theme.iosShadow
 import ch.cclerc.luxapp.viewmodel.SearchField
@@ -59,6 +61,12 @@ fun TripsSearchStandalone(
 
     val viewModel: TripsSearchViewModel = viewModel(key = "tripsSearchStandalone")
     val shortcuts by ShortcutManager.shared.shortcuts.collectAsState()
+    val vias by viewModel.vias.collectAsState()
+    val viaHeight by animateDpAsState(
+        targetValue = viaRowsHeight(vias.size),
+        animationSpec = LuxSprings.springFor(0.4, 0.82),
+        label = "viaRowsHeight"
+    )
     var dragOffset by remember { mutableStateOf(0f) }
 
     LaunchedEffect(viewModel) { viewModel.installPoiHooks() }
@@ -111,7 +119,7 @@ fun TripsSearchStandalone(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(225.dp)
+                    .height(225.dp + viaHeight)
                     .iosShadow(
                         Color.Black.copy(alpha = 0.05f),
                         10.dp,
@@ -156,10 +164,11 @@ fun TripsSearchStandalone(
             onShortcutSelected = { index ->
                 shortcuts.getOrNull(index)?.let { shortcut ->
                     HapticFeedback.lightImpact()
-                    val field = if (viewModel.activeField.value == SearchField.FROM) {
-                        SearchField.FROM
-                    } else {
-                        SearchField.TO
+                    val active = viewModel.activeField.value
+                    val field = when {
+                        active.isVia -> active
+                        active == SearchField.FROM -> SearchField.FROM
+                        else -> SearchField.TO
                     }
                     viewModel.handleInitialSearchResult(shortcut.toSearchResult(), field)
                 }

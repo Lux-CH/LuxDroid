@@ -47,6 +47,7 @@ import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.core.LocationService
 import ch.cclerc.luxapp.core.SFSymbol
 import ch.cclerc.luxapp.ui.anim.pulse
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.ui.anim.pulseScale
 import ch.cclerc.luxapp.ui.anim.scaleClickable
 import ch.cclerc.luxapp.ui.anim.staggeredEntrance
@@ -111,18 +112,44 @@ fun SearchResultsContent(
     val activeField by viewModel.activeField.collectAsState()
     val fromQuery by viewModel.fromQuery.collectAsState()
     val toQuery by viewModel.toQuery.collectAsState()
+    val viaQuery by viewModel.viaQuery.collectAsState()
     val results by viewModel.searchResults.collectAsState()
     val showMinCharacters by viewModel.showMinCharactersMessage.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val currentPositionAvailable by LocationService.location.collectAsState()
+    val allQueriesEmpty = fromQuery.isEmpty() && toQuery.isEmpty() && viaQuery.isEmpty()
 
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
         when {
-            activeField != SearchField.NONE && fromQuery.isEmpty() && toQuery.isEmpty() &&
+            activeField != SearchField.NONE && allQueriesEmpty &&
                 currentPositionAvailable != null -> CurrentLocationOption(viewModel)
             showMinCharacters -> MinCharactersView()
             results.isNotEmpty() -> SearchResultsListView(viewModel)
+            isLoading -> SearchLoadingView()
             else -> EmptySearchView()
         }
+    }
+}
+
+@Composable
+fun SearchLoadingView(modifier: Modifier = Modifier) {
+    val colors = LuxTheme.colors
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        IosActivityIndicator(
+            size = 20.dp,
+            color = colors.secondaryLabel,
+            modifier = Modifier.padding(top = 48.dp)
+        )
+        Text(
+            text = "Recherche…",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = colors.secondaryLabel
+        )
     }
 }
 
@@ -281,7 +308,7 @@ fun MinCharactersView(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun NoResultsView(modifier: Modifier = Modifier) {
+fun NoResultsView(modifier: Modifier = Modifier, hasVias: Boolean = false) {
     val colors = LuxTheme.colors
     Column(
         modifier = modifier
@@ -302,7 +329,11 @@ fun NoResultsView(modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center
         )
         Text(
-            text = "Essayez de modifier vos critères de recherche, vos options ou l'heure de départ.",
+            text = if (hasVias) {
+                "Aucun itinéraire ne passe par vos arrêts intermédiaires. Essayez un autre arrêt ou un temps d'arrêt plus court."
+            } else {
+                "Essayez de modifier vos critères de recherche, vos options ou l'heure de départ."
+            },
             style = LuxTheme.type.subheadline,
             color = colors.secondaryLabel,
             textAlign = TextAlign.Center,

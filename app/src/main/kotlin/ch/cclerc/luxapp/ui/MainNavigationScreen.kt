@@ -114,7 +114,8 @@ fun MainNavigationScreen(
     onSearchEnter: () -> Unit = {},
     onSearchReset: () -> Unit = {},
     onSearchPrefillDestination: (SearchResult) -> Unit = {},
-    onOpenSavedItinerary: (Itinerary) -> Unit = {}
+    onOpenSavedItinerary: (Itinerary) -> Unit = {},
+    searchExtraHeight: Dp = 0.dp
 ) {
     val colors = LuxTheme.colors
     val isDark = LuxTheme.isDark
@@ -174,7 +175,7 @@ fun MainNavigationScreen(
     val compactStops = viewMode == ViewMode.Stops && Settings.reduceSpacerBtwnStopContent
     val targetHeaderHeight = when (viewMode) {
         ViewMode.Home -> 215.dp
-        ViewMode.Search -> 225.dp
+        ViewMode.Search -> 225.dp + searchExtraHeight
         ViewMode.Stops -> max(135.dp, statusInset + 75.dp)
     }
     val headerHeight by animateDpAsState(targetHeaderHeight, LuxSprings.springFor<Dp>(0.4, 1.0), label = "headerHeight")
@@ -200,6 +201,7 @@ fun MainNavigationScreen(
     fun switchToHomeMode() {
         HapticFeedback.softImpact()
         viewMode = ViewMode.Home
+        stopsQuery = ""
     }
 
     fun transitionToSearchMode() {

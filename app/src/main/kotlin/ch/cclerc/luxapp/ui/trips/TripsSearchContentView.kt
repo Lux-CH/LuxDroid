@@ -1,6 +1,20 @@
 package ch.cclerc.luxapp.ui.trips
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import ch.cclerc.luxapp.ui.theme.LuxSprings
+import ch.cclerc.luxapp.viewmodel.RoutePreset
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +22,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +63,7 @@ import ch.cclerc.luxapp.domain.shortcut.ShortcutManager
 import ch.cclerc.luxapp.ui.anim.pulse
 import ch.cclerc.luxapp.ui.anim.scaleClickable
 import ch.cclerc.luxapp.ui.components.HintIndicator
+import ch.cclerc.luxapp.ui.components.KeyboardToolbarHeight
 import ch.cclerc.luxapp.ui.components.PaginationControls
 import ch.cclerc.luxapp.ui.components.TripResultsSkeletonList
 import ch.cclerc.luxapp.ui.theme.LuxShapes
@@ -79,20 +97,22 @@ fun TripsSearchContentView(
     val activeField by viewModel.activeField.collectAsState()
     val fromQuery by viewModel.fromQuery.collectAsState()
     val toQuery by viewModel.toQuery.collectAsState()
+    val viaQuery by viewModel.viaQuery.collectAsState()
     val results by viewModel.searchResults.collectAsState()
     val showMinCharacters by viewModel.showMinCharactersMessage.collectAsState()
 
     val searchActive = activeField != SearchField.NONE &&
         (fromQuery.length >= MIN_SEARCH_CHARACTERS ||
             toQuery.length >= MIN_SEARCH_CHARACTERS ||
+            viaQuery.length >= MIN_SEARCH_CHARACTERS ||
             results.isNotEmpty() ||
             showMinCharacters)
 
     val surface = when {
         showTripResults -> TripsSearchSurface.TripResults
         searchActive -> TripsSearchSurface.SearchResults
-        (activeField == SearchField.FROM || activeField == SearchField.TO) &&
-            fromQuery.isEmpty() && toQuery.isEmpty() &&
+        activeField != SearchField.NONE &&
+            fromQuery.isEmpty() && toQuery.isEmpty() && viaQuery.isEmpty() &&
             results.isEmpty() && !showMinCharacters && Settings.showHistory -> TripsSearchSurface.History
         else -> TripsSearchSurface.Empty
     }
@@ -143,24 +163,127 @@ fun TripResultsContent(
     val errorMessage by viewModel.errorMessage.collectAsState()
     val trips by viewModel.trips.collectAsState()
     val directs by viewModel.directs.collectAsState()
+    val vias by viewModel.vias.collectAsState()
+    val isPresetFallback by viewModel.isPresetFallback.collectAsState()
+    val isSearchingTrips by viewModel.isSearchingTrips.collectAsState()
+    val colors = LuxTheme.colors
 
-    Box(modifier = modifier.fillMaxSize()) {
-        when {
-            showSkeleton -> TripResultsSkeletonList()
-            errorMessage != null -> ErrorView(
-                message = errorMessage.orEmpty(),
-                onRetry = { viewModel.searchTrips() }
-            )
-            trips.isEmpty() && directs.isEmpty() -> NoResultsView()
-            else -> TripResultsList(
-                viewModel = viewModel,
-                trips = trips,
-                directs = directs,
-                onOpenItinerary = onOpenItinerary
-            )
+    Column(modifier = modifier.fillMaxSize()) {
+        RoutePresetBar(viewModel = viewModel, modifier = Modifier.padding(top = 14.dp))
+
+        AnimatedVisibility(
+            visible = isPresetFallback && !isSearchingTrips,
+            enter = fadeIn(tween(250)) + expandVertically(tween(250)),
+            exit = fadeOut(tween(250)) + shrinkVertically(tween(250))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SFSymbol(name = "info.circle", size = 12.sp, color = colors.secondaryLabel, weight = 500)
+                Text(
+                    text = "Aucun itinéraire avec ce profil, itinéraires standards affichés",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.secondaryLabel
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .topFadeMask(14.dp)
+        ) {
+            when {
+                showSkeleton -> TripResultsSkeletonList()
+                errorMessage != null -> ErrorView(
+                    message = errorMessage.orEmpty(),
+                    onRetry = { viewModel.searchTrips() }
+                )
+                trips.isEmpty() && directs.isEmpty() -> NoResultsView(hasVias = vias.isNotEmpty())
+                else -> TripResultsList(
+                    viewModel = viewModel,
+                    trips = trips,
+                    directs = directs,
+                    onOpenItinerary = onOpenItinerary
+                )
+            }
         }
     }
 }
+
+@Composable
+fun RoutePresetBar(
+    viewModel: TripsSearchViewModel,
+    modifier: Modifier = Modifier
+) {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    val selected by viewModel.routePreset.collectAsState()
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        RoutePreset.entries.forEach { preset ->
+            val isSelected = selected == preset
+            val shape = RoundedCornerShape(50)
+            val fill by animateColorAsState(
+                targetValue = if (isSelected) accent.copy(alpha = 0.14f) else colors.secondarySystemFill.copy(alpha = colors.secondarySystemFill.alpha * 0.5f),
+                animationSpec = LuxSprings.springFor(0.35, 0.8),
+                label = "presetFill"
+            )
+            val stroke by animateColorAsState(
+                targetValue = if (isSelected) accent.copy(alpha = 0.35f) else Color.Transparent,
+                animationSpec = LuxSprings.springFor(0.35, 0.8),
+                label = "presetStroke"
+            )
+            val content = if (isSelected) accent else colors.secondaryLabel
+            Row(
+                modifier = Modifier
+                    .clip(shape)
+                    .scaleClickable { viewModel.setRoutePreset(preset) }
+                    .background(fill, shape)
+                    .border(0.5.dp, stroke, shape)
+                    .padding(vertical = 8.dp, horizontal = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SFSymbol(name = preset.symbol, size = 12.sp, color = content, weight = 600)
+                Text(
+                    text = preset.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = content,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+private fun Modifier.topFadeMask(height: androidx.compose.ui.unit.Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(Color.Transparent, Color.Black),
+                startY = 0f,
+                endY = height.toPx()
+            ),
+            blendMode = BlendMode.DstIn
+        )
+    }
 
 @Composable
 private fun TripResultsList(
@@ -186,11 +309,16 @@ private fun TripResultsList(
         }
     }
 
+    // Edge-to-edge means adjustResize never shrinks us; reserve room for the IME and the
+    // KeyboardToolbar that floats on top of it.
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val listBottomPadding = if (imeBottom > 0.dp) imeBottom + KeyboardToolbarHeight + 16.dp else 100.dp
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             state = listState,
-            contentPadding = PaddingValues(top = 20.dp, bottom = 100.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = listBottomPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             itemsIndexedItineraries(directs, "direct", toLocation?.displayName, onOpenItinerary)

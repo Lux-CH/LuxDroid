@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.domain.shortcut.ShortcutManager
+import ch.cclerc.luxapp.domain.search.HybridLocationSearchService
 import ch.cclerc.luxapp.domain.search.PhotonPoiSearchProvider
 import ch.cclerc.luxapp.domain.search.PoiSearchProvider
 import ch.cclerc.luxapp.domain.search.SearchResultVisualStyleStore
@@ -27,13 +28,7 @@ import ch.cclerc.luxcom.model.trip.Itinerary
 private val sharedPoiProvider: PoiSearchProvider by lazy { PhotonPoiSearchProvider() }
 
 internal fun TripsSearchViewModel.installPoiHooks(provider: PoiSearchProvider = sharedPoiProvider) {
-    placeSearch = { query, lat, lon ->
-        val outcome = provider.search(query, lat, lon)
-        if (outcome.styles.isNotEmpty()) {
-            SearchResultVisualStyleStore.setStyles(outcome.styles)
-        }
-        outcome.results
-    }
+    searchService = HybridLocationSearchService(provider)
     resolvePlace = { result -> provider.resolve(result) }
 }
 
@@ -56,7 +51,12 @@ class TripsSearchScreenState internal constructor(val viewModel: TripsSearchView
     }
 
     fun handleShortcut(result: SearchResult) {
-        val field = if (viewModel.activeField.value == SearchField.FROM) SearchField.FROM else SearchField.TO
+        val active = viewModel.activeField.value
+        val field = when {
+            active.isVia -> active
+            active == SearchField.FROM -> SearchField.FROM
+            else -> SearchField.TO
+        }
         viewModel.handleInitialSearchResult(result, field)
     }
 
