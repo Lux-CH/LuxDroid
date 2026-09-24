@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -121,14 +123,18 @@ fun StopsContentView(
 
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 375.dp),
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 8.dp)
+                    .fillMaxWidth()
+                    .height(54.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val shape = RoundedCornerShape(percent = 50)
                 Box(
                     modifier = Modifier
-                        .size(350.dp, 65.dp)
+                        .matchParentSize()
                         .graphicsLayer { alpha = capsuleAlpha }
                         .iosShadow(
                             color = Color.Black.copy(alpha = if (isDark) 0.3f else 0.15f),
