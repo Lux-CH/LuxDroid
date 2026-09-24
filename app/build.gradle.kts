@@ -13,8 +13,8 @@ android {
         applicationId = "ch.cclerc.luxapp"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.8.3c"
+        versionCode = 6
+        versionName = "1.0a"
         ndk {
             abiFilters.add("arm64-v8a")
         }
@@ -57,6 +57,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.maplibre.compose)
+    implementation(libs.play.services.location)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

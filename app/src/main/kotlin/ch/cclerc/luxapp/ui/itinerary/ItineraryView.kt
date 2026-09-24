@@ -59,9 +59,29 @@ import ch.cclerc.luxcom.model.trip.Itinerary
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalContext
+import ch.cclerc.luxapp.core.LocationService
+import ch.cclerc.luxapp.data.Settings
+import ch.cclerc.luxapp.domain.map.LatLng
+import ch.cclerc.luxapp.domain.onboard.LegLiveMerger
+import ch.cclerc.luxapp.domain.onboard.OnboardSession
+import ch.cclerc.luxapp.ui.navigation.LocalSheetController
+import ch.cclerc.luxapp.ui.navigation.LuxSheetRequest
+import ch.cclerc.luxapp.ui.onboard.OnboardIntroCallout
+import ch.cclerc.luxapp.ui.onboard.OnboardNavigationScreen
+import ch.cclerc.luxapp.ui.onboard.OnboardStopPickerSheet
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val OverlayButtonSize = 45.dp
+private val IntroCalloutGap = 12.dp
 private val OverlayColumnSpacing = 12.dp
 private val OverlayHorizontalPadding = 16.dp
 private val SingleMapBottomInset = 72.5.dp
@@ -133,11 +153,91 @@ private fun ItineraryScaffold(
     modifier: Modifier = Modifier
 ) {
     val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
     val coverController = LocalCoverController.current
     val scope = rememberCoroutineScope()
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     var showDetails by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val sheets = LocalSheetController.current
+    var onboardSession by remember { mutableStateOf<OnboardSession?>(null) }
+    var showsOnboardIntro by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose { onboardSession?.stop() }
+    }
+
+    fun startOnboard(itinerary: Itinerary) {
+        val session = OnboardSession(context, itinerary, viewModel.destinationName)
+        showDetails = false
+        viewModel.trackingMode = MapTrackingMode.NONE
+        onboardSession = session
+        session.start()
+    }
+
+    fun endOnboard() {
+        viewModel.resumeTasks()
+        onboardSession = null
+        scope.launch {
+            delay(350)
+            showDetails = true
+        }
+    }
+
+    fun dismissOnboardIntro() {
+        if (!showsOnboardIntro && Settings.onboardIntroSeen) return
+        Settings.onboardIntroSeen = true
+        showsOnboardIntro = false
+    }
+
+    fun onOnboardTapped() {
+        HapticFeedback.mediumImpact()
+        dismissOnboardIntro()
+        val itinerary = viewModel.itinerary ?: return
+        if (!isSingle) {
+            startOnboard(itinerary)
+            return
+        }
+        val tripLeg = itinerary.legs.firstOrNull() ?: return
+        showDetails = false
+        scope.launch {
+            delay(350)
+            var started = false
+            sheets.present(
+                LuxSheetRequest(
+                    cornerRadius = SheetCornerRadius,
+                    detents = listOf(SheetDetent.Medium, SheetDetent.Large)
+                ) {
+                    DisposableEffect(Unit) {
+                        onDispose { if (!started) showDetails = true }
+                    }
+                    val location = LocationService.location.value
+                    OnboardStopPickerSheet(
+                        tripLeg = tripLeg,
+                        userLocation = location?.let { LatLng(it.latitude, it.longitude) },
+                        onSelect = { board, alight ->
+                            val leg = LegLiveMerger.slice(tripLeg, board, alight)
+                            started = leg != null
+                            sheets.dismiss()
+                            if (leg != null) {
+                                startOnboard(
+                                    Itinerary(
+                                        duration = leg.duration,
+                                        startTime = leg.startTime,
+                                        endTime = leg.endTime,
+                                        transfers = 0,
+                                        legs = listOf(leg)
+                                    )
+                                )
+                            }
+                        },
+                        onCancel = { sheets.dismiss() }
+                    )
+                }
+            )
+        }
+    }
 
     val sheetState = remember(isSingle) {
         DetentSheetState(
@@ -197,6 +297,16 @@ private fun ItineraryScaffold(
                 )
             }
         )
+    }
+
+    val activeSession = onboardSession
+    if (activeSession != null) {
+        OnboardNavigationScreen(
+            session = activeSession,
+            onEnd = { endOnboard() },
+            modifier = modifier
+        )
+        return
     }
 
     Box(
@@ -259,14 +369,57 @@ private fun ItineraryScaffold(
 
         val loadedItinerary = viewModel.itinerary
         if (loadedItinerary != null) {
-            ShareButtonView(
-                itinerary = loadedItinerary,
-                compact = true,
-                showCompactSaveAction = !isSingle,
+            val canStartOnboard = OnboardSession.canStart(loadedItinerary)
+            LaunchedEffect(canStartOnboard) {
+                if (!canStartOnboard || Settings.onboardIntroSeen || showsOnboardIntro) return@LaunchedEffect
+                delay(800)
+                if (Settings.onboardIntroSeen || onboardSession != null) return@LaunchedEffect
+                HapticFeedback.success()
+                showsOnboardIntro = true
+                delay(12_000)
+                dismissOnboardIntro()
+            }
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(end = OverlayHorizontalPadding, top = topInset + OverlayColumnSpacing)
-            )
+                    .padding(end = OverlayHorizontalPadding, top = topInset + OverlayColumnSpacing),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(OverlayColumnSpacing)
+            ) {
+                if (canStartOnboard) {
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(OverlayButtonSize)
+                                .iosShadow(Color.Black.copy(alpha = 0.18f), 2.dp, shape = CircleShape)
+                                .clip(CircleShape)
+                                .background(accent, CircleShape)
+                                .clickable { onOnboardTapped() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            SFSymbol(name = "location.north.line.fill", size = 17.sp, color = Color.White, weight = 600)
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showsOnboardIntro,
+                            enter = scaleIn(transformOrigin = TransformOrigin(1f, 0.5f), initialScale = 0.6f) + fadeIn(),
+                            exit = scaleOut(transformOrigin = TransformOrigin(1f, 0.5f), targetScale = 0.6f) + fadeOut(),
+                            modifier = Modifier.layout { measurable, _ ->
+                                val placeable = measurable.measure(Constraints())
+                                layout(0, 0) {
+                                    placeable.place(-placeable.width - IntroCalloutGap.roundToPx(), 0)
+                                }
+                            }
+                        ) {
+                            OnboardIntroCallout(onDismiss = { dismissOnboardIntro() })
+                        }
+                    }
+                }
+                ShareButtonView(
+                    itinerary = loadedItinerary,
+                    compact = true,
+                    showCompactSaveAction = !isSingle
+                )
+            }
         }
 
         AnimatedVisibility(
@@ -287,6 +440,7 @@ private fun ItineraryScaffold(
                 ItineraryDetailSheet(
                     viewModel = viewModel,
                     isSingle = isSingle,
+                    sheetState = sheetState,
                     onOpenSubLeg = { subTripId ->
                         coverController.presentItinerary(tripId = subTripId)
                     }

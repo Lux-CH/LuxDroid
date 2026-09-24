@@ -51,6 +51,7 @@ import ch.cclerc.luxapp.ui.trips.TripsSearchContentSlot
 import ch.cclerc.luxapp.ui.trips.TripsSearchHeaderSlot
 import ch.cclerc.luxapp.ui.trips.TripsSearchStandalone
 import ch.cclerc.luxapp.ui.trips.rememberTripsSearchScreenState
+import ch.cclerc.luxapp.ui.trips.viaRowsHeight
 import ch.cclerc.luxapp.viewmodel.SearchField
 import ch.cclerc.luxapp.viewmodel.StopsViewModel
 import ch.cclerc.luxcom.model.LocationType
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     val sheetController = LocalSheetController.current
                     val stopsViewModel: StopsViewModel = viewModel()
                     val tripsSearchState = rememberTripsSearchScreenState()
+                    val searchVias by tripsSearchState.viewModel.vias.collectAsState()
                     var appliedQuery by remember { mutableStateOf("") }
 
                     DeepLinkHandler(
@@ -89,6 +91,7 @@ class MainActivity : ComponentActivity() {
                     )
 
                     MainNavigationScreen(
+                        searchExtraHeight = viaRowsHeight(searchVias.size),
                         onSearchEnter = { tripsSearchState.enterSearchMode() },
                         onSearchReset = { tripsSearchState.reset() },
                         onSearchPrefillDestination = { result ->

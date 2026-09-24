@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.core.SFSymbol
+import ch.cclerc.luxapp.data.CrowdConsent
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.LineScoreManager
 import ch.cclerc.luxapp.domain.shortcut.ShortcutManager
@@ -384,6 +385,31 @@ private fun SettingsRootView(nav: SettingsNavigator, onClose: () -> Unit) {
                     title = "Mode d'affichage",
                     subtitle = "Chosissez la mode d'affichage de l'app (clair, sombre, auto..)",
                     onClick = { nav.push(SettingsRoute.ColorScheme) }
+                )
+            }
+
+            SettingsCard {
+                SectionHeader(
+                    icon = "location.north.line.fill",
+                    iconColor = colors.systemBlue,
+                    title = "Mode À bord",
+                    subtitle = "Navigation pas à pas pendant votre trajet"
+                )
+                SettingsToggle(
+                    icon = "speaker.wave.2.fill",
+                    title = "Guidage vocal",
+                    subtitle = "Annonce les changements de direction, les retards et quand descendre",
+                    checked = Settings.onboardVoiceGuidance,
+                    onCheckedChange = { Settings.onboardVoiceGuidance = it }
+                )
+                SettingsToggle(
+                    icon = "antenna.radiowaves.left.and.right",
+                    title = "Partager la position du véhicule",
+                    subtitle = "À bord, envoie anonymement la position du véhicule pour calculer son retard et l'afficher en direct aux autres voyageurs",
+                    checked = Settings.onboardCrowdConsent == CrowdConsent.GRANTED,
+                    onCheckedChange = {
+                        Settings.onboardCrowdConsent = if (it) CrowdConsent.GRANTED else CrowdConsent.DECLINED
+                    }
                 )
             }
 

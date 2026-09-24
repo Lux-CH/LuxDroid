@@ -54,6 +54,20 @@ object HapticFeedback {
         play(VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK))
     }
 
+    fun warning() {
+        val v = vibrator ?: return
+        val primitive = VibrationEffect.Composition.PRIMITIVE_CLICK
+        val effect = if (v.areAllPrimitivesSupported(primitive)) {
+            VibrationEffect.startComposition()
+                .addPrimitive(primitive, 0.8f)
+                .addPrimitive(primitive, 0.6f, 90)
+                .compose()
+        } else {
+            VibrationEffect.createPredefined(VibrationEffect.EFFECT_DOUBLE_CLICK)
+        }
+        play(effect)
+    }
+
     fun error() {
         if (vibrator == null) return
         play(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))

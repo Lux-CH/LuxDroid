@@ -37,7 +37,20 @@ object Settings {
     var luxTripShareExpiryTimeH: Int by intPref("luxTripShareExpiryTimeH", 24)
     var crowdbackAllowed: Boolean by boolPref("crowdbackAllowed") { true }
     var showDebug: Boolean by boolPref("showDebug") { false }
+
+    var onboardVoiceGuidance: Boolean by boolPref("onboardVoiceGuidance") { true }
+    private var onboardCrowdConsentRaw: Int by intPref("onboardCrowdConsent", CrowdConsent.UNDECIDED.ordinal)
+    var onboardCrowdConsent: CrowdConsent
+        get() = CrowdConsent.entries.getOrElse(onboardCrowdConsentRaw) { CrowdConsent.UNDECIDED }
+        set(value) {
+            onboardCrowdConsentRaw = value.ordinal
+        }
+    val sharesOnboardPosition: Boolean
+        get() = onboardCrowdConsent == CrowdConsent.GRANTED
+    var onboardIntroSeen: Boolean by boolPref("onboardIntroSeen") { false }
 }
+
+enum class CrowdConsent { UNDECIDED, GRANTED, DECLINED }
 
 internal fun boolPref(key: String, default: () -> Boolean): ReadWriteProperty<Any?, Boolean> =
     object : ReadWriteProperty<Any?, Boolean> {
