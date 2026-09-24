@@ -148,6 +148,13 @@ fun ItineraryMapScreen(
                 viewModel.disableTrackingIfNeeded()
                 onTrackingCancelled()
             },
+            underlay = {
+                StationShapeLayers(
+                    content = viewModel.stationOverlay,
+                    detail = viewModel.stationDetail,
+                    dark = style.isDark
+                )
+            },
             onCameraChange = { position ->
                 val metersPerDp = CameraDistance.metersPerDpForZoom(
                     position.zoom,
@@ -169,6 +176,13 @@ fun ItineraryMapScreen(
             WalkingDotLayer(walking = walking)
             VehicleMarkerLayers(vehicles = vehicles)
         }
+
+        StationSignOverlay(
+            content = viewModel.stationOverlay,
+            detail = viewModel.stationDetail,
+            projection = projector,
+            modifier = Modifier.matchParentSize()
+        )
 
         popoverStop?.let { annotation ->
             StopCallout(

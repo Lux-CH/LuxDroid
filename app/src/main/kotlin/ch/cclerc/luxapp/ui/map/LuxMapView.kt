@@ -84,6 +84,7 @@ fun LuxMapView(
     onUserGesture: () -> Unit = {},
     onCameraChange: (CameraPosition) -> Unit = {},
     onMapClick: (LatLng) -> Unit = {},
+    underlay: @Composable @MaplibreComposable () -> Unit = {},
     content: @Composable @MaplibreComposable () -> Unit = {}
 ) {
     val baseStyle = remember(styleJson) { BaseStyle.Json(styleJson) }
@@ -124,7 +125,7 @@ fun LuxMapView(
             ClickResult.Pass
         }
     ) {
-        RouteLineOverlays(overlays = routeOverlays, anchorLayerId = routeAnchorLayerId)
+        RouteLineOverlays(overlays = routeOverlays, anchorLayerId = routeAnchorLayerId, underlay = underlay)
         if (showUserLocation) {
             UserLocationPuck(cameraState = cameraState)
         }
@@ -134,15 +135,21 @@ fun LuxMapView(
 
 @Composable
 @MaplibreComposable
-private fun RouteLineOverlays(overlays: List<RouteOverlay>, anchorLayerId: String?) {
+private fun RouteLineOverlays(
+    overlays: List<RouteOverlay>,
+    anchorLayerId: String?,
+    underlay: @Composable @MaplibreComposable () -> Unit
+) {
     val featureCollection = remember(overlays) { routeFeatureCollectionJson(overlays) }
     val source = rememberGeoJsonSource(data = GeoJsonData.JsonString(featureCollection))
 
     if (anchorLayerId != null) {
         Anchor.Below(anchorLayerId) {
+            underlay()
             RouteLineLayer(source)
         }
     } else {
+        underlay()
         RouteLineLayer(source)
     }
 }

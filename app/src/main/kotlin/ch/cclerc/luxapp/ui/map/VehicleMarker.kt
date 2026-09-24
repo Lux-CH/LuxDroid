@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.res.ResourcesCompat
 import ch.cclerc.luxapp.R
+import ch.cclerc.luxapp.core.SymbolMap
 import ch.cclerc.luxapp.domain.map.LatLng
 import ch.cclerc.luxapp.viewmodel.VehicleAnnotation
 import kotlin.math.max
@@ -66,6 +67,10 @@ private const val VEHICLE_PULSE_STROKE_ALPHA = 0.6f
 private const val VEHICLE_SHADOW_ALPHA = 0.7f
 private const val VEHICLE_MOVE_DURATION_MS = 500
 private const val VEHICLE_LABEL_SIZE_SP = 11f
+
+private val VehicleLiveBadgeSize = 16.dp
+private val VehicleLiveBadgeOffset = 13.dp
+private const val VEHICLE_LIVE_GLYPH_SIZE_SP = 9f
 
 private val VehiclePulseStartRadius = 16.dp
 private val VehiclePulseEndRadius = 24.dp
@@ -169,7 +174,8 @@ private fun VehicleBadgeLayer(badgeKey: VehicleBadgeKey, vehicles: List<VehicleA
             routeShortName = badgeKey.routeShortName,
             color = Color(badgeKey.colorArgb),
             typeface = ResourcesCompat.getFont(context, R.font.tpg_font),
-            density = density
+            density = density,
+            liveTypeface = if (badgeKey.isLive) ResourcesCompat.getFont(context, R.font.framework7_icons) else null
         )
     }
     val icon = remember(bitmap) { image(bitmap) }
@@ -204,19 +210,20 @@ private fun rememberVehiclePulseProgress(): Float {
     return progress
 }
 
-data class VehicleBadgeKey(val routeShortName: String?, val colorArgb: Int) {
+data class VehicleBadgeKey(val routeShortName: String?, val colorArgb: Int, val isLive: Boolean = false) {
     val layerSuffix: String
-        get() = "${routeShortName.orEmpty().ifEmpty { "none" }}-$colorArgb"
+        get() = "${routeShortName.orEmpty().ifEmpty { "none" }}-$colorArgb${if (isLive) "-live" else ""}"
 }
 
 private fun vehicleBadgeKey(vehicle: VehicleAnnotation): VehicleBadgeKey =
-    VehicleBadgeKey(vehicle.routeShortName, vehicle.color.toArgb())
+    VehicleBadgeKey(vehicle.routeShortName, vehicle.color.toArgb(), vehicle.isLive)
 
 private fun vehicleBadgeBitmap(
     routeShortName: String?,
     color: Color,
     typeface: Typeface?,
-    density: Density
+    density: Density,
+    liveTypeface: Typeface? = null
 ): ImageBitmap {
     val badgePx = with(density) { VehicleMarkerBadgeSize.toPx() }
     val shadowPx = with(density) { VehicleMarkerShadowRadius.toPx() }
@@ -244,6 +251,27 @@ private fun vehicleBadgeBitmap(
         val metrics = label.fontMetrics
         val baseline = center - (metrics.ascent + metrics.descent) / 2f
         canvas.drawText(routeShortName, center, baseline, label)
+    }
+
+    if (liveTypeface != null) {
+        val offset = with(density) { VehicleLiveBadgeOffset.toPx() }
+        val liveRadius = with(density) { VehicleLiveBadgeSize.toPx() } / 2f
+        val liveCenterX = center + offset
+        val liveCenterY = center - offset
+        val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.White.toArgb()
+            setShadowLayer(with(density) { 1.5.dp.toPx() }, 0f, 0f, Color.Black.copy(alpha = 0.2f).toArgb())
+        }
+        canvas.drawCircle(liveCenterX, liveCenterY, liveRadius, background)
+        val glyph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color.toArgb()
+            this.typeface = liveTypeface
+            textAlign = Paint.Align.CENTER
+            textSize = with(density) { VEHICLE_LIVE_GLYPH_SIZE_SP.sp.toPx() }
+        }
+        val glyphMetrics = glyph.fontMetrics
+        val glyphBaseline = liveCenterY - (glyphMetrics.ascent + glyphMetrics.descent) / 2f
+        canvas.drawText(SymbolMap.glyphFor("dot.radiowaves.up.forward").text, liveCenterX, glyphBaseline, glyph)
     }
 
     return bitmap.asImageBitmap()

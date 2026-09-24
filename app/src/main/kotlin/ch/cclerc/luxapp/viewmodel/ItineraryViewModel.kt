@@ -11,6 +11,10 @@ import ch.cclerc.luxapp.domain.map.PolylineCodec
 import ch.cclerc.luxapp.domain.map.VehicleVisualisation
 import ch.cclerc.luxapp.domain.map.WalkingPathMetrics
 import ch.cclerc.luxapp.domain.map.buildWalkingPathMetrics
+import ch.cclerc.luxapp.domain.map.distanceTo
+import ch.cclerc.luxapp.domain.station.StationDetail
+import ch.cclerc.luxapp.domain.station.StationLayoutStore
+import ch.cclerc.luxapp.domain.station.StationOverlayContent
 import ch.cclerc.luxapp.domain.map.epochSeconds
 import ch.cclerc.luxapp.domain.map.interpolateCoordinate
 import ch.cclerc.luxapp.domain.map.interpolateOnPath
@@ -52,7 +56,8 @@ data class VehicleAnnotation(
     val id: String,
     val coordinate: LatLng,
     val routeShortName: String?,
-    val color: Color
+    val color: Color,
+    val isLive: Boolean = false
 )
 
 @Immutable
@@ -172,6 +177,12 @@ class ItineraryViewModel private constructor(
     var targetBounds: MapBounds? by mutableStateOf(null)
         private set
 
+    var stationOverlay: StationOverlayContent by mutableStateOf(StationOverlayContent.Empty)
+        private set
+
+    var stationDetail: StationDetail by mutableStateOf(StationDetail.HIDDEN)
+        private set
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val liveFeed = RelayLiveFeed<Itinerary>(scope)
 
@@ -179,6 +190,10 @@ class ItineraryViewModel private constructor(
     private var walkingLegPaths: Map<String, WalkingPathMetrics> = emptyMap()
     private var vehicleUpdateJob: Job? = null
     private var walkingUpdateJob: Job? = null
+    private var stationJob: Job? = null
+    private val liveVehicles = mutableMapOf<String, RelayClient.CrowdVehicle?>()
+    private val liveVehicleJobs = mutableMapOf<String, Job>()
+    private val displayedVehiclePositions = mutableMapOf<String, LatLng>()
     private var shouldStop = false
 
     fun setTripOptions(options: List<TripOption>) {
@@ -232,6 +247,7 @@ class ItineraryViewModel private constructor(
         itinerary = null
         mapAnnotations = emptyList()
         routeOverlays = emptyList()
+        stationOverlay = StationOverlayContent.Empty
         targetBounds = null
         legKeyFrames = emptyMap()
         walkingLegPaths = emptyMap()
@@ -247,6 +263,8 @@ class ItineraryViewModel private constructor(
     }
 
     fun setCameraDistance(distance: Double) {
+        val detail = StationDetail.of(distance)
+        if (detail != stationDetail) stationDetail = detail
         val shouldShow = distance < ZOOM_THRESHOLD_METERS
         if (shouldShow == showingIntermediateStops) return
         showingIntermediateStops = shouldShow
@@ -265,10 +283,19 @@ class ItineraryViewModel private constructor(
     }
 
     fun stopAllTasks() {
+        liveVehicleJobs.values.forEach { it.cancel() }
+        liveVehicleJobs.clear()
+        liveVehicles.clear()
+        stationJob?.cancel()
+        stationJob = null
         shouldStop = true
         liveFeed.stop()
         stopVehicleUpdates()
         stopWalkingUpdates()
+    }
+
+    fun resumeTasks() {
+        shouldStop = false
     }
 
     fun cleanup() {
@@ -316,6 +343,7 @@ class ItineraryViewModel private constructor(
         val (annotations, overlays) = createAnnotationsAndOverlays(current)
         mapAnnotations = annotations
         routeOverlays = overlays
+        loadStationLayouts(current.legs)
 
         if (shouldCalculateMapPosition && targetBounds == null) {
             calculateMapPosition()
@@ -324,12 +352,50 @@ class ItineraryViewModel private constructor(
         prepareWalkingLegCoordinates(current.legs)
         prepareVehicleKeyFrames(current.legs)
 
+        subscribeToLiveVehicles(current.legs)
         startVehicleUpdates()
         startWalkingUpdates()
     }
 
-    fun legIdentifier(leg: Leg): String =
-        "${leg.routeShortName ?: ""}_${leg.headsign ?: ""}_${leg.startTime.epochSecond}"
+    fun legIdentifier(leg: Leg): String {
+        val tripId = leg.tripId
+        if (!tripId.isNullOrEmpty()) return "trip_$tripId"
+        return "${leg.routeShortName ?: ""}_${leg.headsign ?: ""}_${leg.scheduledStartTime.epochSecond}"
+    }
+
+    private fun loadStationLayouts(legs: List<Leg>) {
+        stationJob?.cancel()
+        stationJob = scope.launch {
+            val layouts = StationLayoutStore.layouts(legs)
+            if (shouldStop) return@launch
+            stationOverlay = StationOverlayContent.of(legs, layouts)
+        }
+    }
+
+    private fun subscribeToLiveVehicles(legs: List<Leg>) {
+        if (shouldStop) return
+        for (leg in legs) {
+            if (leg.mode == TransportationMode.WALK || leg.mode == TransportationMode.BIKE) continue
+            val tripId = leg.tripId
+            if (tripId.isNullOrEmpty()) continue
+            val legId = legIdentifier(leg)
+            if (liveVehicleJobs[legId] != null) continue
+            liveVehicleJobs[legId] = scope.launch {
+                RelayClient.shared.vehicle(tripId).collect { vehicle ->
+                    liveVehicles[legId] = vehicle
+                }
+            }
+        }
+    }
+
+    private fun eased(current: LatLng?, target: LatLng): LatLng {
+        if (current == null || current.distanceTo(target) >= 2_000) return target
+        val factor = 0.25
+        return LatLng(
+            current.latitude + (target.latitude - current.latitude) * factor,
+            current.longitude + (target.longitude - current.longitude) * factor
+        )
+    }
 
     private fun legColorOf(leg: Leg): Color = getLegColor(leg, false, accent)
 
@@ -504,9 +570,24 @@ class ItineraryViewModel private constructor(
 
         vehicleAnnotations = current.legs.mapNotNull { leg ->
             if (leg.mode == TransportationMode.WALK || leg.mode == TransportationMode.BIKE) return@mapNotNull null
-            if (leg.startTime.isAfter(now) || leg.endTime.isBefore(now)) return@mapNotNull null
 
             val legId = legIdentifier(leg)
+
+            val live = liveVehicles[legId]
+            if (live != null && live.isFresh && !leg.endTime.plusSeconds(300).isBefore(now)) {
+                val position = eased(displayedVehiclePositions[legId], LatLng(live.lat, live.lon))
+                displayedVehiclePositions[legId] = position
+                return@mapNotNull VehicleAnnotation(
+                    id = legId,
+                    coordinate = position,
+                    routeShortName = leg.routeShortName,
+                    color = legColorOf(leg),
+                    isLive = true
+                )
+            }
+
+            if (leg.startTime.isAfter(now) || leg.endTime.isBefore(now)) return@mapNotNull null
+
             val keyFrames = legKeyFrames[legId] ?: return@mapNotNull null
             val position = VehicleVisualisation.interpolatePosition(nowSeconds, keyFrames)
                 ?: return@mapNotNull null
