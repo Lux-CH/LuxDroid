@@ -42,6 +42,8 @@ import ch.cclerc.luxapp.ui.theme.LuxTheme
 
 data class KeyboardToolbarShortcut(val symbol: String, val name: String)
 
+val KeyboardToolbarHeight = 56.dp
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun KeyboardToolbar(
@@ -92,7 +94,7 @@ private fun KeyboardToolbarBar(
     Box(
         Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(KeyboardToolbarHeight)
             .background(background)
     ) {
         Row(

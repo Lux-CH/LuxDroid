@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,10 +33,12 @@ fun StopsList(
     val listState = rememberLazyListState()
 
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Edge-to-edge means adjustResize never shrinks us, so keep the last rows clear of the IME.
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         state = listState,
-        contentPadding = PaddingValues(bottom = 100.dp + navBottom)
+        contentPadding = PaddingValues(bottom = maxOf(100.dp + navBottom, imeBottom + 24.dp))
     ) {
         itemsIndexed(
             items = uniqueStops,
