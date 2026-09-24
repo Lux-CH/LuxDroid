@@ -248,6 +248,16 @@ fun LegSegmentView(
     )
     val base = legColor(leg)
     val bright = legColor(leg, brightIt = true)
+    val routeName = leg.routeShortName
+    val isTrainDetected = routeName != null &&
+        listOf("RL", "IR", "RE", "IC", "EC", "EXT", "ICE", "TGV", "RJ", "SN", "R")
+            .any { routeName.startsWith(it) }
+    val isMetro = leg.mode == TransportationMode.SUBWAY ||
+        listOf("m1", "m2").contains((routeName ?: "").lowercase())
+    val isMainlineRail = (leg.mode.isMainlineRail || isTrainDetected) && !isMetro
+    val isEmphasizedService = isMainlineRail || isMetro
+    val emphasizedFillOpacity = if (colors.isDark) 0.45f else 0.7f
+    val routeNameColor = if (isEmphasizedService) Color.White.copy(alpha = 0.85f) else bright
     val shadowPx = with(LocalDensity.current) { 1.dp.toPx() }
     val textShadow = Shadow(
         color = Color.Black.copy(alpha = 0.3f),
@@ -258,7 +268,9 @@ fun LegSegmentView(
     Box(modifier, contentAlignment = Alignment.Center) {
         Box(Modifier.matchParentSize()) {
             GlossyFill(
-                fill = base.copy(alpha = 0.2f),
+                fill = base.copy(
+                    alpha = if (isEmphasizedService) emphasizedFillOpacity else 0.2f
+                ),
                 shape = shape,
                 highlightAlpha = if (colors.isDark) 0.08f else 0.15f
             )
@@ -314,7 +326,7 @@ fun LegSegmentView(
                         style = TextStyle(
                             fontFamily = TpgFontFamily,
                             fontSize = 14.sp,
-                            color = bright,
+                            color = routeNameColor,
                             textAlign = TextAlign.Center,
                             shadow = textShadow
                         ),

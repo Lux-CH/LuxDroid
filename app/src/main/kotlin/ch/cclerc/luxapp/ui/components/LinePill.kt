@@ -8,6 +8,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -83,22 +84,28 @@ private fun PillBody(
     }
 }
 
-@Composable
-fun LinePill(
+@Immutable
+data class LinePillAppearance(
+    val formattedLine: String,
+    val isMetro: Boolean,
+    val isMainlineRail: Boolean,
+    val isSquared: Boolean,
+    val resolved: LineColors.ResolvedLineColor,
+    val baseLineColor: Color,
+    val lineColor: Color,
+    val textColorOnLineColor: Color
+)
+
+fun linePillAppearance(
     line: String,
     agencyId: String?,
     mode: TransportationMode,
-    width: Dp = 30.dp,
-    height: Dp = 20.dp,
-    fontSize: TextUnit = 11.sp
-) {
-    val accent = LuxTheme.accent
-    val colors = LuxTheme.colors
-    val isFoundationDark = isSystemInDarkTheme()
-
+    accent: Color,
+    highContrast: Boolean = Settings.highContrastButAccurateLinePill
+): LinePillAppearance {
     val isTrainDetected = listOf("RL", "IR", "RE", "IC", "EC", "EXT", "ICE", "TGV", "RJ", "SN", "R")
         .any { line.startsWith(it) }
-    val isMetro = mode == TransportationMode.SUBWAY || mode == TransportationMode.METRO ||
+    val isMetro = mode == TransportationMode.SUBWAY ||
         listOf("m1", "m2").contains(line.lowercase())
     val isMainlineRail = (mode.isMainlineRail || isTrainDetected) && !isMetro
 
@@ -116,18 +123,46 @@ fun LinePill(
     }
 
     val resolved = LineColors.resolve(line, agencyId, isSquared)
-    val baseLineColor = if (resolved.isBranded) {
-        Color(resolved.color)
-    } else if (resolved.color != 0L) {
-        Color(resolved.color)
-    } else {
-        accent
-    }
+    val baseLineColor = if (resolved.isBranded || resolved.color != 0L) Color(resolved.color) else accent
+    val lineColor =
+        if (isDarkColor(baseLineColor) && !highContrast) lightenColor(baseLineColor) else baseLineColor
+    val textColorOnLineColor = if (isMainlineRail || isMetro) Color.White else Color(resolved.textColor)
+
+    return LinePillAppearance(
+        formattedLine = formattedLine,
+        isMetro = isMetro,
+        isMainlineRail = isMainlineRail,
+        isSquared = isSquared,
+        resolved = resolved,
+        baseLineColor = baseLineColor,
+        lineColor = lineColor,
+        textColorOnLineColor = textColorOnLineColor
+    )
+}
+
+@Composable
+fun LinePill(
+    line: String,
+    agencyId: String?,
+    mode: TransportationMode,
+    width: Dp = 30.dp,
+    height: Dp = 20.dp,
+    fontSize: TextUnit = 11.sp
+) {
+    val accent = LuxTheme.accent
+    val colors = LuxTheme.colors
+    val isFoundationDark = isSystemInDarkTheme()
 
     val highContrast = Settings.highContrastButAccurateLinePill
     val easyOnTheEyes = Settings.easyOnTheEyes
-    val lineColor =
-        if (isDarkColor(baseLineColor) && !highContrast) lightenColor(baseLineColor) else baseLineColor
+    val appearance = linePillAppearance(line, agencyId, mode, accent, highContrast)
+    val isMetro = appearance.isMetro
+    val isMainlineRail = appearance.isMainlineRail
+    val isSquared = appearance.isSquared
+    val formattedLine = appearance.formattedLine
+    val resolved = appearance.resolved
+    val baseLineColor = appearance.baseLineColor
+    val lineColor = appearance.lineColor
 
     val isEmphasizedService = isMainlineRail || isMetro
     val emphasizedFillOpacity = if (!isFoundationDark) 0.7f else 0.45f

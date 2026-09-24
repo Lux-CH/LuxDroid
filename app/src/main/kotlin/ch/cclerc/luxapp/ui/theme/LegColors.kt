@@ -21,6 +21,17 @@ fun defaultLegAccent(): Color = AccentColorManager.current().resolved(false)
 fun legColor(leg: Leg, brightIt: Boolean = false): Color =
     getLegColor(leg, brightIt, LuxTheme.accent)
 
+fun resolvedLineColor(leg: Leg): LineColors.ResolvedLineColor? {
+    val routeName = leg.routeShortName ?: return null
+    val isTrainDetected = routeName.startsWith("RL") || routeName.startsWith("IR") ||
+        routeName.startsWith("RE") || routeName.startsWith("IC") || routeName == "R"
+    return LineColors.resolve(
+        line = routeName,
+        agency = leg.agencyId,
+        isSquared = leg.mode.usesSquaredPill || isTrainDetected
+    )
+}
+
 fun getLegColor(
     leg: Leg,
     brightIt: Boolean = false,
@@ -32,16 +43,9 @@ fun getLegColor(
         else -> Unit
     }
 
-    val routeName = leg.routeShortName
+    val resolved = resolvedLineColor(leg)
 
-    val baseColor: Color = if (routeName != null) {
-        val isTrainDetected = routeName.startsWith("RL") || routeName.startsWith("IR") ||
-            routeName.startsWith("RE") || routeName.startsWith("IC") || routeName == "R"
-        val resolved = LineColors.resolve(
-            line = routeName,
-            agency = leg.agencyId,
-            isSquared = leg.mode.usesSquaredPill || isTrainDetected
-        )
+    val baseColor: Color = if (resolved != null) {
         if (resolved.isBranded) {
             Color(resolved.color)
         } else if (resolved.color != 0L) {
