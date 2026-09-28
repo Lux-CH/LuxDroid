@@ -11,6 +11,7 @@ sealed interface SheetDetent {
     data class Fraction(val f: Float) : SheetDetent
     data object Medium : SheetDetent
     data object Large : SheetDetent
+    data object Dismissed : SheetDetent
 
     class Height(val key: String, val height: Dp) : SheetDetent {
         override fun equals(other: Any?): Boolean = other is Height && other.key == key
@@ -19,6 +20,7 @@ sealed interface SheetDetent {
 }
 
 internal fun SheetDetent.sortFraction(): Float = when (this) {
+    SheetDetent.Dismissed -> -1f
     is SheetDetent.Height -> 0f
     is SheetDetent.Fraction -> f
     SheetDetent.Medium -> 0.5f
@@ -31,6 +33,7 @@ internal fun detentHeightPx(
     largeHeightPx: Float,
     density: Density? = null
 ): Float = when (detent) {
+    SheetDetent.Dismissed -> 0f
     is SheetDetent.Height -> density?.run { detent.height.toPx() } ?: detent.height.value
     is SheetDetent.Fraction -> containerHeightPx * detent.f
     SheetDetent.Medium -> containerHeightPx * 0.5f

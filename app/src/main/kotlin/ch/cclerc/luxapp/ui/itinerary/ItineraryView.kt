@@ -275,7 +275,7 @@ private fun ItineraryScaffold(
     var stopSheetCompactHeight by remember { mutableStateOf(480.dp) }
     val estimateStopSheetHeight = rememberStopSheetHeightEstimator()
     val containerWidth = LocalConfiguration.current.screenWidthDp.dp
-    val stopSheetState = remember { DetentSheetState(listOf(SheetDetent.Height(STOP_SHEET_KEY, 480.dp), SheetDetent.Large)) }
+    val stopSheetState = remember { DetentSheetState(listOf(SheetDetent.Height(STOP_SHEET_KEY, 480.dp), SheetDetent.Large), dismissible = true) }
     val stopCompactDetent = SheetDetent.Height(STOP_SHEET_KEY, stopSheetCompactHeight)
     LaunchedEffect(stopSheetCompactHeight) {
         stopSheetState.detents = listOf(stopCompactDetent, SheetDetent.Large)
@@ -296,7 +296,7 @@ private fun ItineraryScaffold(
         stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp, connections.isNotEmpty())
         shownConnections = connections
         shownStop = place
-        scope.launch { stopSheetState.animateTo(stopCompactDetent) }
+        scope.launch { stopSheetState.snapTo(stopCompactDetent) }
         if (stopDestination != null) {
             stopDestination = place
             return
@@ -525,7 +525,8 @@ private fun ItineraryScaffold(
             DetentSheet(
                 state = stopSheetState,
                 cornerRadius = 36.dp,
-                showDragIndicator = true
+                showDragIndicator = true,
+                onDismiss = { closeStopSheet(restoringDetails = true) }
             ) {
                 shownStop?.let { place ->
                     ItineraryStopSheet(

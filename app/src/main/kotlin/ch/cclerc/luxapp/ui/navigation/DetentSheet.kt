@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.snapTo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,6 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.drop
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,12 +50,14 @@ import kotlin.math.roundToInt
 
 private val DetentSpring: SpringSpec<Float> = spring(dampingRatio = 1f, stiffness = 322f)
 
-class DetentSheetState(detents: List<SheetDetent>) {
+class DetentSheetState(detents: List<SheetDetent>, val dismissible: Boolean = false) {
     var detents: List<SheetDetent> by mutableStateOf(detents)
 
     internal val ordered: List<SheetDetent>
-        get() = detents.distinct().sortedBy { it.sortFraction() }
-    internal val anchored = AnchoredDraggableState(initialValue = ordered.first())
+        get() = (if (dismissible) detents + SheetDetent.Dismissed else detents).distinct().sortedBy { it.sortFraction() }
+    internal val presented: SheetDetent
+        get() = ordered.first { it != SheetDetent.Dismissed }
+    internal val anchored = AnchoredDraggableState(initialValue = presented)
     internal val peekHeightState = mutableStateOf(0.dp)
 
     val peekHeightDp: Dp get() = peekHeightState.value
@@ -60,6 +67,11 @@ class DetentSheetState(detents: List<SheetDetent>) {
 
     val targetDetent: SheetDetent
         get() = anchored.targetValue
+
+    suspend fun snapTo(detent: SheetDetent) {
+        if (detent !in ordered || anchored.anchors.size == 0) return
+        anchored.snapTo(detent)
+    }
 
     suspend fun animateTo(detent: SheetDetent) {
         if (detent !in ordered || anchored.anchors.size == 0) return
@@ -73,8 +85,16 @@ fun DetentSheet(
     cornerRadius: Dp = 38.dp,
     showDragIndicator: Boolean = true,
     modifier: Modifier = Modifier,
+    onDismiss: () -> Unit = {},
     content: @Composable () -> Unit
 ) {
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(state) {
+        if (state.anchored.currentValue == SheetDetent.Dismissed) state.anchored.snapTo(state.presented)
+        snapshotFlow { state.anchored.settledValue }
+            .drop(1)
+            .collect { if (it == SheetDetent.Dismissed) currentOnDismiss() }
+    }
     val colors = LuxTheme.colors
     val density = LocalDensity.current
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -88,7 +108,7 @@ fun DetentSheet(
         val heights = remember(state, ordered, heightKeys, containerHeightPx, largeHeightPx, bottomInsetPx) {
             val computed = ordered.map { detent ->
                 val height = detentHeightPx(detent, containerHeightPx, largeHeightPx, density)
-                if (detent == SheetDetent.Large) height else height + bottomInsetPx
+                if (detent == SheetDetent.Large || detent == SheetDetent.Dismissed) height else height + bottomInsetPx
             }
             val current = state.anchored.currentValue
             state.anchored.updateAnchors(
@@ -97,9 +117,9 @@ fun DetentSheet(
                         detent at (containerHeightPx - computed[index])
                     }
                 },
-                if (current in ordered) current else ordered.first()
+                if (current in ordered) current else state.presented
             )
-            state.peekHeightState.value = with(density) { computed.first().toDp() }
+            state.peekHeightState.value = with(density) { computed[ordered.indexOf(state.presented)].toDp() }
             computed
         }
         val flingThresholdPx = with(density) { 125.dp.toPx() }
@@ -118,7 +138,7 @@ fun DetentSheet(
                 .height(with(density) { heights.last().toDp() })
                 .offset {
                     val y = state.anchored.offset
-                    val resolved = if (y.isNaN()) containerHeightPx - heights.first() else y
+                    val resolved = if (y.isNaN()) containerHeightPx - heights[ordered.indexOf(state.presented)] else y
                     IntOffset(0, resolved.roundToInt())
                 }
                 .nestedScroll(connection)
