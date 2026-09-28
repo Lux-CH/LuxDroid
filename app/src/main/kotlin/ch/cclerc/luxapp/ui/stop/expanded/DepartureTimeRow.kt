@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +74,8 @@ internal fun relativeTimeLabel(date: Instant?, now: Instant): String {
     }
 }
 
+
+val LocalOnGlassSheet = staticCompositionLocalOf { false }
 @Composable
 fun DepartureTimeRow(
     stopTime: StopTime,
@@ -122,7 +125,10 @@ fun DepartureTimeRow(
                     Modifier
                 }
             )
-            .background(colors.secondarySystemBackground, RoundedCornerShape(LuxShapes.r8))
+            .background(
+                if (LocalOnGlassSheet.current && colors.isDark) colors.tertiarySystemFill else colors.secondarySystemBackground,
+                RoundedCornerShape(LuxShapes.r8)
+            )
             .border(
                 width = if (stopTime.cancelled) 2.dp else 1.dp,
                 color = borderColor,

@@ -1,6 +1,10 @@
 package ch.cclerc.luxapp.ui.map
 
 import androidx.compose.runtime.Composable
+import ch.cclerc.luxcom.model.Place
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -47,6 +51,11 @@ const val LUX_STOP_DEFAULT_LAYER_ID = "lux-stop-default"
 const val LUX_STOP_INTERMEDIATE_LAYER_ID = "lux-stop-intermediate"
 const val LUX_STOP_HIT_LAYER_ID = "lux-stop-hit"
 const val LUX_STOP_LABEL_LAYER_ID = "lux-stop-label"
+const val LUX_STOP_SELECTED_LAYER_ID = "lux-stop-selected"
+
+val StopDotSelectedSize = 24.dp
+val StopDotSelectedHaloSize = 40.dp
+private val SelectedSpring = spring<Dp>(dampingRatio = 0.65f, stiffness = 320f)
 
 private const val STOP_HALO_OPACITY = 0.15f
 private const val STOP_HIT_OPACITY = 0.002f
@@ -66,7 +75,8 @@ private enum class StopDotKind { TERMINAL, INTERMEDIATE, DEFAULT }
 fun StopDotLayers(
     stops: List<StopAnnotation>,
     showingIntermediateStops: Boolean,
-    onStopClick: (StopAnnotation) -> Unit
+    onStopClick: (StopAnnotation) -> Unit,
+    selectedPlace: Place? = null
 ) {
     val grouped = remember(stops) { stops.groupBy(::stopDotKind) }
     val byId = remember(stops) { stops.associateBy { it.id } }
@@ -153,6 +163,33 @@ fun StopDotLayers(
         opacity = const(STOP_HIT_OPACITY),
         strokeWidth = const(0.dp),
         onClick = onFeaturesClick
+    )
+
+    val selected = remember(stops, selectedPlace) {
+        selectedPlace?.let { place ->
+            stops.filter { it.place.lat == place.lat && it.place.lon == place.lon && it.place.name == place.name }.take(1)
+        }.orEmpty()
+    }
+    val selectedSource = rememberStopSource(selected)
+    val selectedHalo by animateDpAsState(if (selected.isEmpty()) 8.dp else StopDotSelectedHaloSize, SelectedSpring, label = "stopHalo")
+    val selectedDot by animateDpAsState(if (selected.isEmpty()) 8.dp else StopDotSelectedSize, SelectedSpring, label = "stopDot")
+
+    CircleLayer(
+        id = "$LUX_STOP_SELECTED_LAYER_ID-halo",
+        source = selectedSource,
+        radius = const(selectedHalo / 2),
+        color = Feature.get("color").convertToColor(),
+        opacity = const(0.25f),
+        strokeWidth = const(0.dp)
+    )
+
+    CircleLayer(
+        id = LUX_STOP_SELECTED_LAYER_ID,
+        source = selectedSource,
+        radius = const(selectedDot / 2),
+        color = Feature.get("color").convertToColor(),
+        strokeColor = const(Color.White),
+        strokeWidth = const(StopDotTerminalStroke)
     )
 
     StopLabelLayer(

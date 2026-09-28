@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +24,7 @@ import ch.cclerc.luxapp.ui.anim.IosTransitions
 import ch.cclerc.luxapp.ui.stop.expanded.BoardMode
 import ch.cclerc.luxapp.ui.stop.expanded.ExpandedStopHeaderView
 import ch.cclerc.luxapp.ui.stop.expanded.EntranceTracker
+import ch.cclerc.luxapp.ui.stop.expanded.LocalOnGlassSheet
 import ch.cclerc.luxapp.ui.stop.expanded.RouteGroupsView
 import ch.cclerc.luxapp.ui.stop.expanded.StopContentEmptyView
 import ch.cclerc.luxapp.ui.stop.expanded.StopContentLoadingView
@@ -42,23 +44,27 @@ fun ExpandedStopView(
     maxGroupsToShow: Int,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     modifier: Modifier = Modifier,
-    time: Instant? = null
+    time: Instant? = null,
+    track: String? = null,
+    animatesIn: Boolean = true,
+    onGlassSheet: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
 
-    val viewModel = remember(stop.id, fromStops, maxGroupsToShow, time) {
+    val viewModel = remember(stop.id, fromStops, maxGroupsToShow, time, track) {
         StopViewModel(
             stop = stop,
             fromStops = fromStops,
             maxGroupsToShow = maxGroupsToShow,
-            initialTime = time
+            initialTime = time,
+            track = track
         )
     }
 
     var selectedDate by remember(stop.id) { mutableStateOf(time ?: Instant.now()) }
     var boardMode by remember(stop.id) { mutableStateOf(BoardMode.Grouped) }
     var contentTransitionId by remember(stop.id) { mutableStateOf(0) }
-    var animateIn by remember(stop.id) { mutableStateOf(false) }
+    var animateIn by remember(stop.id) { mutableStateOf(!animatesIn) }
     var isChangingContent by remember(stop.id) { mutableStateOf(false) }
     var showContent by remember(stop.id) { mutableStateOf(true) }
     var isRefreshing by remember(stop.id) { mutableStateOf(false) }
@@ -95,6 +101,7 @@ fun ExpandedStopView(
         }
     }
 
+    CompositionLocalProvider(LocalOnGlassSheet provides onGlassSheet) {
     Column(modifier.fillMaxSize()) {
         ExpandedStopHeaderView(
             animateIn = animateIn,
@@ -168,5 +175,6 @@ fun ExpandedStopView(
                 }
             }
         }
+    }
     }
 }

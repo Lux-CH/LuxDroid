@@ -84,6 +84,7 @@ fun LuxMapView(
     onUserGesture: () -> Unit = {},
     onCameraChange: (CameraPosition) -> Unit = {},
     onMapClick: (LatLng) -> Unit = {},
+    onMapLongClick: ((LatLng) -> Unit)? = null,
     underlay: @Composable @MaplibreComposable () -> Unit = {},
     content: @Composable @MaplibreComposable () -> Unit = {}
 ) {
@@ -123,6 +124,15 @@ fun LuxMapView(
         onMapClick = { position, _ ->
             onMapClick(LatLng(position.latitude, position.longitude))
             ClickResult.Pass
+        },
+        onMapLongClick = { position, _ ->
+            val handler = onMapLongClick
+            if (handler != null) {
+                handler(LatLng(position.latitude, position.longitude))
+                ClickResult.Consume
+            } else {
+                ClickResult.Pass
+            }
         }
     ) {
         RouteLineOverlays(overlays = routeOverlays, anchorLayerId = routeAnchorLayerId, underlay = underlay)

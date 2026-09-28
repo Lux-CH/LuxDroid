@@ -1,5 +1,7 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import androidx.compose.ui.platform.LocalConfiguration
+import ch.cclerc.luxapp.ui.stop.rememberStopSheetHeightEstimator
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.EaseOut
@@ -47,6 +49,9 @@ import ch.cclerc.luxapp.ui.navigation.DetentSheetState
 import ch.cclerc.luxapp.ui.navigation.LocalCoverController
 import ch.cclerc.luxapp.ui.navigation.LuxCoverRequest
 import ch.cclerc.luxapp.ui.navigation.SheetDetent
+import ch.cclerc.luxcom.model.SearchResult
+import ch.cclerc.luxapp.ui.stop.ItineraryStopSheetFirstGroupHeight
+import ch.cclerc.luxapp.ui.stop.ItineraryStopSheet
 import ch.cclerc.luxapp.ui.theme.LuxMaterials
 import ch.cclerc.luxapp.ui.theme.LuxTheme
 import ch.cclerc.luxapp.ui.theme.iosShadow
@@ -90,6 +95,7 @@ private val SheetCornerRadius = 38.dp
 private const val SINGLE_SHEET_FRACTION = 0.1f
 private const val MULTIPLE_SHEET_FRACTION = 0.225f
 private const val SHEET_TRANSITION_MILLIS = 300
+private const val STOP_SHEET_KEY = "stop-compact"
 
 private val exactTimeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
@@ -257,47 +263,73 @@ private fun ItineraryScaffold(
         onDispose { viewModel.cleanup() }
     }
 
-    fun closeStopDetail() {
-        coverController.dismiss()
-        viewModel.selectedStop = null
-        showDetails = true
+    var stopDestination by remember { mutableStateOf<Place?>(null) }
+    var shownStop by remember { mutableStateOf<Place?>(null) }
+    var stopSheetCompactHeight by remember { mutableStateOf(480.dp) }
+    val estimateStopSheetHeight = rememberStopSheetHeightEstimator()
+    val containerWidth = LocalConfiguration.current.screenWidthDp.dp
+    val stopSheetState = remember { DetentSheetState(listOf(SheetDetent.Height(STOP_SHEET_KEY, 480.dp), SheetDetent.Large)) }
+    val stopCompactDetent = SheetDetent.Height(STOP_SHEET_KEY, stopSheetCompactHeight)
+    LaunchedEffect(stopSheetCompactHeight) {
+        stopSheetState.detents = listOf(stopCompactDetent, SheetDetent.Large)
     }
 
-    fun openStopDetail(place: Place) {
+    fun openStopSheet(place: Place) {
+        HapticFeedback.softImpact()
+        stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp)
+        shownStop = place
+        scope.launch { stopSheetState.animateTo(stopCompactDetent) }
+        if (stopDestination != null) {
+            stopDestination = place
+            return
+        }
         showDetails = false
-        coverController.present(
-            LuxCoverRequest(dismissOnBack = false) {
-                BackHandler { closeStopDetail() }
-                ItineraryStopDetailView(
-                    stop = place,
-                    onDismiss = { closeStopDetail() },
-                    onPlanTrip = { searchResult ->
-                        coverController.present(
-                            LuxCoverRequest {
-                                TripsSearchStandalone(
-                                    onDismiss = { coverController.dismiss() },
-                                    initialSearchResult = searchResult,
-                                    initialTargetField = SearchField.TO,
-                                    onOpenItinerary = { itinerary, destination ->
-                                        coverController.presentItinerary(
-                                            itinerary = itinerary,
-                                            destinationName = destination
-                                        )
-                                    }
-                                )
-                            }
-                        )
-                    },
-                    onOpenTrip = { tripId, options ->
-                        coverController.presentItinerary(
-                            tripId = tripId,
-                            otherTripOptions = options
-                        )
-                    }
-                )
-            }
-        )
+        scope.launch {
+            delay(150)
+            stopDestination = place
+        }
     }
+
+    fun closeStopSheet(restoringDetails: Boolean) {
+        if (stopDestination == null) return
+        stopDestination = null
+        viewModel.selectedStop = null
+        if (restoringDetails) {
+            scope.launch {
+                delay(SHEET_TRANSITION_MILLIS.toLong())
+                showDetails = true
+            }
+        }
+    }
+
+    fun planTrip(searchResult: SearchResult) {
+        closeStopSheet(restoringDetails = false)
+        scope.launch {
+            delay(350)
+            coverController.present(
+                LuxCoverRequest {
+                    DisposableEffect(Unit) { onDispose { showDetails = true } }
+                    TripsSearchStandalone(
+                        onDismiss = { coverController.dismiss() },
+                        initialSearchResult = searchResult,
+                        initialTargetField = SearchField.TO,
+                        onOpenItinerary = { itinerary, destination ->
+                            coverController.presentItinerary(
+                                itinerary = itinerary,
+                                destinationName = destination
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    LaunchedEffect(viewModel.selectedStop) {
+        viewModel.selectedStop?.let { openStopSheet(it) }
+    }
+
+    BackHandler(enabled = stopDestination != null) { closeStopSheet(restoringDetails = true) }
 
     val activeSession = onboardSession
     if (activeSession != null) {
@@ -319,8 +351,10 @@ private fun ItineraryScaffold(
             sheetPeekHeight = mapBottomInset,
             modifier = Modifier.fillMaxSize(),
             fromNearby = fromNearby,
-            onOpenExpandedStop = { place -> openStopDetail(place) },
-            onSheetVisibilityChange = { visible -> showDetails = visible },
+            selectedStop = if (stopDestination != null) shownStop else null,
+            stopSheetHeight = stopSheetCompactHeight,
+            onOpenStop = { place -> openStopSheet(place) },
+            onMapTap = { closeStopSheet(restoringDetails = true) },
             onTrackingCancelled = {}
         )
 
@@ -340,6 +374,7 @@ private fun ItineraryScaffold(
             OverlayCircleButton(
                 symbol = "chevron.backward",
                 onClick = {
+                    closeStopSheet(restoringDetails = false)
                     showDetails = false
                     onDismiss()
                 }
@@ -445,6 +480,40 @@ private fun ItineraryScaffold(
                         coverController.presentItinerary(tripId = subTripId)
                     }
                 )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = stopDestination != null,
+            modifier = Modifier.fillMaxSize(),
+            enter = slideInVertically(
+                animationSpec = tween(SHEET_TRANSITION_MILLIS, easing = EaseOut)
+            ) { it },
+            exit = slideOutVertically(
+                animationSpec = tween(SHEET_TRANSITION_MILLIS, easing = EaseOut)
+            ) { it }
+        ) {
+            DetentSheet(
+                state = stopSheetState,
+                cornerRadius = 36.dp,
+                showDragIndicator = true
+            ) {
+                shownStop?.let { place ->
+                    ItineraryStopSheet(
+                        place = place,
+                        onGo = { stop -> planTrip(stop) },
+                        onOpenTrip = { tripId, options ->
+                            closeStopSheet(restoringDetails = true)
+                            coverController.presentItinerary(tripId = tripId, otherTripOptions = options)
+                        },
+                        onHeaderHeight = { height ->
+                            val compact = height + ItineraryStopSheetFirstGroupHeight
+                            if ((compact - stopSheetCompactHeight).value.let { kotlin.math.abs(it) } > 1f) {
+                                stopSheetCompactHeight = compact
+                            }
+                        }
+                    )
+                }
             }
         }
     }

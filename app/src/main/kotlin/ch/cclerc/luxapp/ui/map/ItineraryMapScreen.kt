@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.maplibre.compose.camera.CameraState
+import androidx.compose.ui.unit.DpOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.cclerc.luxapp.core.LocationService
 import ch.cclerc.luxapp.domain.map.LatLng
@@ -31,7 +33,7 @@ const val ITINERARY_NEARBY_CAMERA_DISTANCE_METERS = 10_000.0
 private const val MINIMUM_BOUNDS_SPAN_DEGREES = 0.0009
 private val BoundsFitDuration = 500.milliseconds
 private val TrackingFollowDuration = 300.milliseconds
-private const val STOP_DETAIL_DELAY_MS = 150L
+private val RevealDuration = 600.milliseconds
 
 @Composable
 fun ItineraryMapScreen(
@@ -39,8 +41,10 @@ fun ItineraryMapScreen(
     sheetPeekHeight: Dp,
     modifier: Modifier = Modifier,
     fromNearby: Boolean = false,
-    onOpenExpandedStop: (Place) -> Unit = {},
-    onSheetVisibilityChange: (Boolean) -> Unit = {},
+    selectedStop: Place? = null,
+    stopSheetHeight: Dp = 0.dp,
+    onOpenStop: (Place) -> Unit = {},
+    onMapTap: () -> Unit = {},
     onTrackingCancelled: () -> Unit = {}
 ) {
     val style = rememberLuxMapStyle()
@@ -50,7 +54,6 @@ fun ItineraryMapScreen(
     val location by LocationService.location.collectAsStateWithLifecycle()
     val heading by LocationService.heading.collectAsStateWithLifecycle()
 
-    var popoverStop by remember { mutableStateOf<StopAnnotation?>(null) }
     var didFitBounds by remember { mutableStateOf(false) }
 
     val overlays = remember(viewModel.routeOverlays) {
@@ -71,13 +74,6 @@ fun ItineraryMapScreen(
 
     LaunchedEffect(viewModel) {
         viewModel.loadItinerary()
-    }
-
-    LaunchedEffect(viewModel.selectedStop) {
-        val stop = viewModel.selectedStop ?: return@LaunchedEffect
-        onSheetVisibilityChange(false)
-        delay(STOP_DETAIL_DELAY_MS)
-        onOpenExpandedStop(stop)
     }
 
     BoxWithConstraints(modifier = modifier) {
@@ -136,6 +132,20 @@ fun ItineraryMapScreen(
             )
         }
 
+        val mapWidth = maxWidth
+        LaunchedEffect(selectedStop) {
+            val stop = selectedStop ?: return@LaunchedEffect
+            revealCoordinate(
+                cameraState,
+                LatLng(stop.lat, stop.lon),
+                mapWidth,
+                mapHeight,
+                top = 140.dp,
+                bottom = mapHeight - stopSheetHeight - 40.dp
+            )
+            viewModel.disableTrackingIfNeeded()
+        }
+
         LuxMapView(
             styleJson = style.json,
             modifier = Modifier.matchParentSize(),
@@ -148,6 +158,7 @@ fun ItineraryMapScreen(
                 viewModel.disableTrackingIfNeeded()
                 onTrackingCancelled()
             },
+            onMapClick = { if (selectedStop != null) onMapTap() },
             underlay = {
                 StationShapeLayers(
                     content = viewModel.stationOverlay,
@@ -168,10 +179,8 @@ fun ItineraryMapScreen(
             StopDotLayers(
                 stops = stops,
                 showingIntermediateStops = viewModel.showingIntermediateStops,
-                onStopClick = { annotation ->
-                    onSheetVisibilityChange(false)
-                    popoverStop = annotation
-                }
+                selectedPlace = selectedStop,
+                onStopClick = { annotation -> onOpenStop(annotation.place) }
             )
             WalkingDotLayer(walking = walking)
             VehicleMarkerLayers(vehicles = vehicles)
@@ -183,26 +192,25 @@ fun ItineraryMapScreen(
             projection = projector,
             modifier = Modifier.matchParentSize()
         )
-
-        popoverStop?.let { annotation ->
-            StopCallout(
-                place = annotation.place,
-                color = annotation.color,
-                latitude = annotation.coordinate.latitude,
-                longitude = annotation.coordinate.longitude,
-                projection = projector,
-                modifier = Modifier.matchParentSize(),
-                onOtherDepartures = {
-                    popoverStop = null
-                    onOpenExpandedStop(annotation.place)
-                },
-                onDismiss = {
-                    popoverStop = null
-                    onSheetVisibilityChange(true)
-                }
-            )
-        }
     }
+}
+
+suspend fun revealCoordinate(
+    cameraState: CameraState,
+    coordinate: LatLng,
+    width: Dp,
+    height: Dp,
+    top: Dp,
+    bottom: Dp
+) {
+    if (height <= 0.dp || bottom <= top) return
+    val projection = cameraState.projection ?: return
+    val point = projection.screenLocationFromPosition(Position(longitude = coordinate.longitude, latitude = coordinate.latitude))
+    val targetY = top + (bottom - top) * 0.8f
+    val center = projection.positionFromScreenLocation(
+        DpOffset(width / 2 + point.x - width / 2, height / 2 + point.y - targetY)
+    )
+    cameraState.animateTo(cameraState.position.copy(target = center), RevealDuration)
 }
 
 fun boundingBoxOf(coordinates: List<LatLng>, paddingFraction: Double): BoundingBox? {
