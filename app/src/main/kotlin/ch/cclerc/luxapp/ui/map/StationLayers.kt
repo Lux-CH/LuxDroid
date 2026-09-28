@@ -164,32 +164,43 @@ fun StationShapeLayers(
 }
 
 @Composable
-fun StationSignOverlay(
+@MaplibreComposable
+fun StationSignLayers(
     content: StationOverlayContent,
     detail: StationDetail,
-    projection: MapProjector,
-    modifier: Modifier = Modifier
+    store: MarkerImageStore,
+    idPrefix: String = "lux-station"
 ) {
     val access = content.visibleAccess(detail)
     val labels = content.visibleLabels(detail)
 
-    AnnotationOverlay(
+    MarkerLayer(
+        id = "$idPrefix-access",
+        store = store,
         items = access,
-        projection = projection,
         positionOf = { it.coordinate },
-        modifier = modifier,
-        keyOf = { it.id }
+        imageKeyOf = { it.kind.name }
     ) { point ->
         StationAccessView(kind = point.kind)
     }
 
-    AnnotationOverlay(
-        items = labels,
-        projection = projection,
+    MarkerLayer(
+        id = "$idPrefix-track",
+        store = store,
+        items = labels.filter { it.color == null },
         positionOf = { it.coordinate },
-        modifier = modifier,
-        keyOf = { it.id },
-        anchorOf = { if (it.color != null) AnnotationBottomAnchor else AnnotationCenterAnchor }
+        imageKeyOf = { it.text }
+    ) { label ->
+        StationLabelView(label = label)
+    }
+
+    MarkerLayer(
+        id = "$idPrefix-track-ours",
+        store = store,
+        items = labels.filter { it.color != null },
+        positionOf = { it.coordinate },
+        imageKeyOf = { "${it.text}|${it.color?.value}" },
+        anchor = MarkerAnchor.Bottom
     ) { label ->
         StationLabelView(label = label)
     }

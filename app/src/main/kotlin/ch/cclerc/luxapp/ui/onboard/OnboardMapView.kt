@@ -1,5 +1,11 @@
 package ch.cclerc.luxapp.ui.onboard
 
+import ch.cclerc.luxapp.ui.map.rememberMarkerImageStore
+import ch.cclerc.luxapp.ui.map.StationSignLayers
+import ch.cclerc.luxapp.ui.map.MarkerLayer
+import ch.cclerc.luxapp.ui.map.MarkerImageStore
+import ch.cclerc.luxapp.ui.map.MarkerImageHost
+import ch.cclerc.luxapp.ui.map.MarkerAnchor
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -71,7 +77,6 @@ import ch.cclerc.luxapp.ui.map.AnnotationOverlay
 import ch.cclerc.luxapp.ui.map.AnnotationOverlayItem
 import ch.cclerc.luxapp.ui.map.LuxMapView
 import ch.cclerc.luxapp.ui.map.StationShapeLayers
-import ch.cclerc.luxapp.ui.map.StationSignOverlay
 import ch.cclerc.luxapp.ui.map.boundingBoxOf
 import ch.cclerc.luxapp.ui.map.cameraDistanceMeters
 import ch.cclerc.luxapp.ui.map.rememberLuxCameraState
@@ -156,6 +161,7 @@ fun OnboardMapView(
     val accent = LuxTheme.accent
     val cameraState = rememberLuxCameraState()
     val projector = rememberMapProjector(cameraState)
+    val markerImages = rememberMarkerImageStore()
     val motion = remember { OnboardCameraMotion() }
     val following by rememberUpdatedState(isFollowing && !showsOverview)
 
@@ -266,35 +272,36 @@ fun OnboardMapView(
                 ArrowLayers(arrow)
                 StopDotLayer(stopDots.first)
             }
-        )
-
-        val overlayModifier = Modifier.matchParentSize()
-        StationSignOverlay(stationContent, motion.detail, projector, overlayModifier)
-        SectorChips(session, itineraryLayouts, motion.detail, projector, overlayModifier)
-        LevelChangePins(session, projector, overlayModifier)
-
-        AnnotationOverlay(
-            items = stopDots.second,
-            projection = projector,
-            positionOf = { it.first },
-            modifier = overlayModifier,
-            keyOf = { it.second + it.first },
-            anchorOf = { Offset(0.5f, 0f) }
-        ) { (_, name) ->
-            MapLabel(name, Modifier.padding(top = 12.dp))
-        }
-
-        session.legs.lastOrNull()?.let { last ->
-            AnnotationOverlayItem(
-                latitude = last.to.lat,
-                longitude = last.to.lon,
-                projection = projector,
-                modifier = overlayModifier,
-                anchor = AnnotationBottomAnchor
+        ) {
+            StationSignLayers(stationContent, motion.detail, markerImages, idPrefix = "onboard-station")
+            SectorChips(session, itineraryLayouts, motion.detail, markerImages)
+            LevelChangePins(session, markerImages)
+            MarkerLayer(
+                id = "onboard-stop-labels",
+                store = markerImages,
+                items = stopDots.second,
+                positionOf = { it.first },
+                imageKeyOf = { it.second },
+                anchor = MarkerAnchor.Top
+            ) { (_, name) ->
+                MapLabel(name, Modifier.padding(top = 12.dp))
+            }
+            val destination = session.legs.lastOrNull()?.let { listOf(LatLng(it.to.lat, it.to.lon)) }.orEmpty()
+            val destinationName = session.destinationName.capitalizedFirstLetter
+            MarkerLayer(
+                id = "onboard-destination",
+                store = markerImages,
+                items = destination,
+                positionOf = { it },
+                imageKeyOf = { destinationName },
+                anchor = MarkerAnchor.Bottom
             ) {
-                DestinationFlag(session.destinationName.capitalizedFirstLetter)
+                DestinationFlag(destinationName)
             }
         }
+
+        MarkerImageHost(markerImages)
+        val overlayModifier = Modifier.matchParentSize()
 
         val nextLeg = session.nextTransitLeg?.second
         val vehicle = motion.approachingVehicle
@@ -729,12 +736,12 @@ private fun StopDotLayer(dots: List<GroundDot>) {
 }
 
 @Composable
+@MaplibreComposable
 private fun SectorChips(
     session: OnboardSession,
     layouts: Map<Int, StationLayout>,
     detail: StationDetail,
-    projector: ch.cclerc.luxapp.ui.map.MapProjector,
-    modifier: Modifier
+    store: MarkerImageStore
 ) {
     var sectors: List<StationLayout.Sector> = emptyList()
     var covered: Set<String>? = null
@@ -754,30 +761,31 @@ private fun SectorChips(
         }
     }
     val coveredSet = covered
-    AnnotationOverlay(
+    MarkerLayer(
+        id = "onboard-sectors",
+        store = store,
         items = sectors,
-        projection = projector,
         positionOf = { it.coordinate },
-        modifier = modifier,
-        keyOf = { it.s }
+        imageKeyOf = { "${it.s}|${coveredSet?.contains(it.s)}|${it.s in firstClass}" }
     ) { sector ->
         SectorChipView(sector.s, coveredSet?.contains(sector.s), sector.s in firstClass)
     }
 }
 
 @Composable
-private fun LevelChangePins(session: OnboardSession, projector: ch.cclerc.luxapp.ui.map.MapProjector, modifier: Modifier) {
+@MaplibreComposable
+private fun LevelChangePins(session: OnboardSession, store: MarkerImageStore) {
     if (session.phase != OnboardPhase.WALKING) return
     val path = session.currentPath ?: return
     val changes = session.maneuvers.getOrNull(session.legIndex).orEmpty().filter { it.isLevelChange }
     val pins = changes.mapNotNull { change -> path.coordinate(change.along)?.let { it to change } }
     val shape = RoundedCornerShape(7.dp)
-    AnnotationOverlay(
+    MarkerLayer(
+        id = "onboard-level-changes",
+        store = store,
         items = pins,
-        projection = projector,
         positionOf = { it.first },
-        modifier = modifier,
-        keyOf = { "${it.second.along}${it.second.symbolName}" }
+        imageKeyOf = { it.second.symbolName }
     ) { (_, change) ->
         Box(
             Modifier
