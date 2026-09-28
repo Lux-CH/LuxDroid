@@ -19,7 +19,7 @@ object VehicleVisualisation {
     )
 
     private data class StopSample(
-        val arrivalTime: Double?,
+        var arrivalTime: Double?,
         var departureTime: Double,
         val coordinate: LatLng
     )
@@ -30,35 +30,63 @@ object VehicleVisualisation {
         val index: Int
     )
 
-    fun calculateKeyFrames(leg: Leg, polylineString: String, precision: Double = 1e6): List<KeyFrame> {
+    fun calculateKeyFrames(
+        leg: Leg,
+        polylineString: String,
+        precision: Double = 1e6,
+        scheduled: Boolean = false
+    ): List<KeyFrame> {
         val coordinates = PolylineCodec.decode(polylineString, precision)
         if (coordinates.size < 2) return emptyList()
 
-        val departureTime = leg.startTime.epochSeconds()
-        val arrivalTime = leg.endTime.epochSeconds()
+        val departureTime = (if (scheduled) leg.scheduledStartTime else leg.startTime).epochSeconds()
+        val arrivalTime = (if (scheduled) leg.scheduledEndTime else leg.endTime).epochSeconds()
 
         val stops = ArrayList<StopSample>()
+        val timetable = ArrayList<Pair<Double?, Double?>>()
 
         stops.add(StopSample(null, departureTime, LatLng(leg.from.lat, leg.from.lon)))
+        timetable.add(null to leg.scheduledStartTime.epochSeconds())
 
         leg.intermediateStops?.forEach { stop ->
-            val stopArrival = (stop.arrival ?: stop.scheduledArrival)?.epochSeconds()
-            val stopDeparture = (stop.departure ?: stop.scheduledDeparture)?.epochSeconds()
+            val scheduledArrival = stop.scheduledArrival?.epochSeconds()
+            val scheduledDeparture = stop.scheduledDeparture?.epochSeconds()
+            val stopArrival = if (scheduled) scheduledArrival ?: stop.arrival?.epochSeconds() else stop.arrival?.epochSeconds() ?: scheduledArrival
+            val stopDeparture = if (scheduled) scheduledDeparture ?: stop.departure?.epochSeconds() else stop.departure?.epochSeconds() ?: scheduledDeparture
 
             if (stopDeparture != null) {
                 stops.add(StopSample(stopArrival, stopDeparture, LatLng(stop.lat, stop.lon)))
+                timetable.add(scheduledArrival to scheduledDeparture)
             } else if (stopArrival != null) {
                 stops.add(StopSample(stopArrival, stopArrival, LatLng(stop.lat, stop.lon)))
+                timetable.add(scheduledArrival to scheduledDeparture)
             }
         }
 
         stops.add(StopSample(arrivalTime, arrivalTime, LatLng(leg.to.lat, leg.to.lon)))
+        timetable.add(leg.scheduledEndTime.epochSeconds() to null)
 
         val dwellTime = leg.mode.dwellTime
         for (i in 1 until stops.size - 1) {
             val stopArrival = stops[i].arrivalTime
             if (stopArrival != null && abs(stopArrival - stops[i].departureTime) < 1.0) {
                 stops[i].departureTime = stopArrival + dwellTime
+            }
+        }
+
+        if (!scheduled) {
+            for (i in 0 until stops.size - 1) {
+                val plannedDeparture = timetable[i].second ?: timetable[i].first ?: continue
+                val plannedArrival = timetable[i + 1].first ?: timetable[i + 1].second ?: continue
+                if (plannedArrival <= plannedDeparture) continue
+                val minimumTravel = (plannedArrival - plannedDeparture) * 0.6
+                val nextArrival = stops[i + 1].arrivalTime ?: stops[i + 1].departureTime
+                if (nextArrival - stops[i].departureTime >= minimumTravel) continue
+                val earliestDeparture = stops[i].arrivalTime ?: stops[i].departureTime
+                stops[i].departureTime = max(earliestDeparture, nextArrival - minimumTravel)
+                val arrival = max(nextArrival, stops[i].departureTime + minimumTravel)
+                if (stops[i + 1].arrivalTime != null) stops[i + 1].arrivalTime = arrival
+                stops[i + 1].departureTime = max(stops[i + 1].departureTime, arrival)
             }
         }
 
