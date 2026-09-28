@@ -12,6 +12,7 @@ import ch.cclerc.luxapp.data.AppDirectories
 import ch.cclerc.luxapp.data.Progress
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.ConnectionService
+import ch.cclerc.luxapp.domain.onboard.OnboardLiveActivityController
 import ch.cclerc.luxapp.domain.search.SearchResultVisualStyleStore
 import ch.cclerc.luxcom.net.ApiClient
 import ch.cclerc.luxcom.relay.RelayClient
@@ -32,6 +33,7 @@ class LuxApplication : Application() {
         NetworkMonitor.init(this)
         ConnectionService.init(this)
         ApiClient.warmUp()
+        OnboardLiveActivityController.endAll(this)
         if (Settings.appLaunchCount % 15 == 0) {
             appScope.launch { CacheCleaner.performCleanup(this@LuxApplication) }
         }

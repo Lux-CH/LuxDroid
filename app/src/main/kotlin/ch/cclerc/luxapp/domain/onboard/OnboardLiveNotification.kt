@@ -89,12 +89,14 @@ class OnboardLiveActivityController(context: Context) {
         runCatching {
             appContext.startForegroundService(Intent(appContext, OnboardService::class.java))
         }
+        scheduleStale()
     }
 
     fun update(state: OnboardActivityState) {
-        if (!isActive || state == lastState) return
+        val needsRefresh = System.currentTimeMillis() - lastPush >= REFRESH_AFTER_MS
+        if (!isActive || (state == lastState && !needsRefresh)) return
         val previous = lastState
-        if (previous != null && isMinorChange(previous, state)) {
+        if (!needsRefresh && previous != null && isMinorChange(previous, state)) {
             val progressMoved = abs(previous.progress - state.progress) >= 0.02
             val sinceLastPush = System.currentTimeMillis() - lastPush
             if (!((progressMoved && sinceLastPush >= 5_000) || sinceLastPush >= 15_000)) return
@@ -104,11 +106,45 @@ class OnboardLiveActivityController(context: Context) {
         val notification = build(state)
         currentNotification = notification
         notify(notification)
+        scheduleStale()
     }
+
+    private fun scheduleStale() {
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({
+            if (!isActive) return@postDelayed
+            val notification = buildInterrupted()
+            currentNotification = notification
+            notify(notification)
+        }, STALE_AFTER_MS)
+    }
+
+    private fun buildInterrupted(): Notification =
+        NotificationCompat.Builder(appContext, OnboardAnnouncer.LIVE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_onboard_notification)
+            .setContentIntent(contentIntent())
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentTitle("Navigation interrompue")
+            .setContentText(destinationName)
+            .setShortCriticalText("—")
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+
+    private fun contentIntent(): PendingIntent = PendingIntent.getActivity(
+        appContext,
+        1,
+        Intent(appContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+    )
 
     fun end(finalState: OnboardActivityState?) {
         if (!isActive) return
         isActive = false
+        handler.removeCallbacksAndMessages(null)
         if (finalState != null && finalState.phase == OnboardPhase.ARRIVED) {
             val notification = build(finalState, ongoing = false)
             currentNotification = notification
@@ -146,12 +182,7 @@ class OnboardLiveActivityController(context: Context) {
             abs((old.targetDate?.epochSecond ?: 0) - (new.targetDate?.epochSecond ?: 0)) < 30
 
     private fun build(state: OnboardActivityState, ongoing: Boolean = true): Notification {
-        val intent = PendingIntent.getActivity(
-            appContext,
-            1,
-            Intent(appContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
+        val intent = contentIntent()
         val builder = NotificationCompat.Builder(appContext, OnboardAnnouncer.LIVE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_onboard_notification)
             .setContentIntent(intent)
@@ -274,6 +305,13 @@ class OnboardLiveActivityController(context: Context) {
     companion object {
         const val NOTIFICATION_ID = 4_242
         private const val PROGRESS_MAX = 1_000
+        private const val STALE_AFTER_MS = 180_000L
+        private const val REFRESH_AFTER_MS = 60_000L
+
+        fun endAll(context: Context) {
+            currentNotification = null
+            runCatching { NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID) }
+        }
 
         @Volatile
         var currentNotification: Notification? = null
@@ -309,6 +347,13 @@ class OnboardService : Service() {
             )
         }.onFailure { stopSelf() }
         return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        OnboardLiveActivityController.endAll(this)
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
     }
 
     companion object {
