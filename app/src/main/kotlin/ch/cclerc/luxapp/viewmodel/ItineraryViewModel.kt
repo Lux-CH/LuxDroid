@@ -1,5 +1,7 @@
 package ch.cclerc.luxapp.viewmodel
 
+import ch.cclerc.luxapp.domain.onboard.LiveVehicleTrack
+import ch.cclerc.luxapp.domain.onboard.RoutePath
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -193,7 +195,7 @@ class ItineraryViewModel private constructor(
     private var stationJob: Job? = null
     private val liveVehicles = mutableMapOf<String, RelayClient.CrowdVehicle?>()
     private val liveVehicleJobs = mutableMapOf<String, Job>()
-    private val displayedVehiclePositions = mutableMapOf<String, LatLng>()
+    private val liveTracks = mutableMapOf<String, LiveVehicleTrack>()
     private var shouldStop = false
 
     fun setTripOptions(options: List<TripOption>) {
@@ -286,6 +288,7 @@ class ItineraryViewModel private constructor(
         liveVehicleJobs.values.forEach { it.cancel() }
         liveVehicleJobs.clear()
         liveVehicles.clear()
+        liveTracks.clear()
         stationJob?.cancel()
         stationJob = null
         shouldStop = true
@@ -383,18 +386,25 @@ class ItineraryViewModel private constructor(
             liveVehicleJobs[legId] = scope.launch {
                 RelayClient.shared.vehicle(tripId).collect { vehicle ->
                     liveVehicles[legId] = vehicle
+                    track(vehicle, leg, legId)
                 }
             }
         }
     }
 
-    private fun eased(current: LatLng?, target: LatLng): LatLng {
-        if (current == null || current.distanceTo(target) >= 2_000) return target
-        val factor = 0.25
-        return LatLng(
-            current.latitude + (target.latitude - current.latitude) * factor,
-            current.longitude + (target.longitude - current.longitude) * factor
-        )
+    private fun track(vehicle: RelayClient.CrowdVehicle?, leg: Leg, legId: String) {
+        if (vehicle == null) {
+            liveTracks.remove(legId)
+            return
+        }
+        val now = Instant.now()
+        val track = liveTracks[legId]
+        if (track != null) {
+            track.update(vehicle, now)
+        } else {
+            val path = RoutePath.encoded(leg.legGeometry.points, 1e6)
+            LiveVehicleTrack.create(path, vehicle, now)?.let { liveTracks[legId] = it }
+        }
     }
 
     private fun legColorOf(leg: Leg): Color = getLegColor(leg, false, accent)
@@ -575,8 +585,7 @@ class ItineraryViewModel private constructor(
 
             val live = liveVehicles[legId]
             if (live != null && live.isFresh && !leg.endTime.plusSeconds(300).isBefore(now)) {
-                val position = eased(displayedVehiclePositions[legId], LatLng(live.lat, live.lon))
-                displayedVehiclePositions[legId] = position
+                val position = liveTracks[legId]?.coordinate(now) ?: LatLng(live.lat, live.lon)
                 return@mapNotNull VehicleAnnotation(
                     id = legId,
                     coordinate = position,

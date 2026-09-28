@@ -94,7 +94,8 @@ class RelayClient private constructor() {
         val status: String,
         val delay: Int? = null,
         val riders: Int? = null,
-        val likelyTripId: String? = null
+        val likelyTripId: String? = null,
+        val watched: Boolean? = null
     )
 
     @Serializable
