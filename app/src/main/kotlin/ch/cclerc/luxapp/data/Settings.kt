@@ -39,6 +39,7 @@ object Settings {
     var showDebug: Boolean by boolPref("showDebug") { false }
 
     var onboardVoiceGuidance: Boolean by boolPref("onboardVoiceGuidance") { true }
+    var onboardMotionRecording: Boolean by boolPref("onboardMotionRecording") { false }
     private var onboardCrowdConsentRaw: Int by intPref("onboardCrowdConsent", CrowdConsent.UNDECIDED.ordinal)
     var onboardCrowdConsent: CrowdConsent
         get() = CrowdConsent.entries.getOrElse(onboardCrowdConsentRaw) { CrowdConsent.UNDECIDED }

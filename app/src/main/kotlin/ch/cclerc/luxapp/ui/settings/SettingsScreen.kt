@@ -61,6 +61,13 @@ import ch.cclerc.luxapp.ui.components.settings.SettingsToggle
 import ch.cclerc.luxapp.ui.navigation.LocalSheetController
 import ch.cclerc.luxapp.ui.theme.LuxTheme
 import java.util.Locale
+import java.io.File
+import ch.cclerc.luxapp.domain.onboard.OnboardMotionRecorder
+import androidx.core.content.FileProvider
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import android.text.format.Formatter
 
 private const val PRIVACY_FR = "https://lux.cclerc.ch/privacy/fr.html"
 private const val PRIVACY_EN = "https://lux.cclerc.ch/privacy/en.html"
@@ -411,6 +418,14 @@ private fun SettingsRootView(nav: SettingsNavigator, onClose: () -> Unit) {
                         Settings.onboardCrowdConsent = if (it) CrowdConsent.GRANTED else CrowdConsent.DECLINED
                     }
                 )
+                SettingsToggle(
+                    icon = "waveform.path.ecg",
+                    title = "Enregistrer les mouvements",
+                    subtitle = "Garde sur l'appareil l'accéléromètre et la position de chaque trajet, pour améliorer la détection des arrêts sous terre",
+                    checked = Settings.onboardMotionRecording,
+                    onCheckedChange = { Settings.onboardMotionRecording = it }
+                )
+                MotionRecordingsRow()
             }
 
             SettingsCard {
@@ -544,4 +559,84 @@ private fun AdvancedSettingsView(onBack: () -> Unit, onOpenStats: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun MotionRecordingsRow() {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    val context = LocalContext.current
+    var recordings by remember { mutableStateOf(OnboardMotionRecorder.recordings(context)) }
+    var size by remember { mutableStateOf(OnboardMotionRecorder.totalSize(context)) }
+    var confirmsDelete by remember { mutableStateOf(false) }
+
+    fun reload() {
+        recordings = OnboardMotionRecorder.recordings(context)
+        size = OnboardMotionRecorder.totalSize(context)
+    }
+
+    if (recordings.isEmpty()) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+            SFSymbol(name = "square.and.arrow.up", size = 20.sp, color = accent)
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier
+                .weight(1f)
+                .scaleClickable { shareRecordings(context, recordings) }
+        ) {
+            Text(
+                text = "Exporter les enregistrements",
+                style = LuxTheme.type.body.copy(fontWeight = FontWeight.Medium),
+                color = colors.label
+            )
+            Text(
+                text = "${recordings.size} trajets · ${Formatter.formatShortFileSize(context, size)}",
+                style = LuxTheme.type.caption,
+                color = colors.secondaryLabel
+            )
+        }
+        Box(
+            Modifier
+                .size(32.dp)
+                .scaleClickable { confirmsDelete = true },
+            contentAlignment = Alignment.Center
+        ) {
+            SFSymbol(name = "trash", size = 17.sp, color = colors.systemRed)
+        }
+    }
+
+    if (confirmsDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmsDelete = false },
+            title = { Text("Supprimer les enregistrements ?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmsDelete = false
+                    OnboardMotionRecorder.deleteAll(context)
+                    reload()
+                }) { Text("Supprimer", color = colors.systemRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmsDelete = false }) { Text("Annuler") }
+            }
+        )
+    }
+}
+
+private fun shareRecordings(context: Context, recordings: List<File>) {
+    val authority = "${context.packageName}.recordings"
+    val uris = ArrayList(recordings.map { FileProvider.getUriForFile(context, authority, it) })
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE)
+        .setType("text/csv")
+        .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    runCatching { context.startActivity(Intent.createChooser(intent, null)) }
 }
