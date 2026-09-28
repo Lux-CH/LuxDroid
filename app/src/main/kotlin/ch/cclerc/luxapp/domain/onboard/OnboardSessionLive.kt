@@ -24,12 +24,15 @@ fun OnboardSession.startLiveFeeds() {
     vehicleJobs.values.forEach { it.cancel() }
     vehicleJobs.clear()
     liveVehicles.clear()
+    liveTracks.clear()
     tripKeyFrames.clear()
     for (index in legs.indices) startLiveFeed(index)
 }
 
 fun OnboardSession.startLiveFeed(index: Int) {
     tripKeyFrames.remove(index)
+    tripLegs.remove(index)
+    liveTracks.remove(index)
     liveFeeds[index]?.stop()
     vehicleJobs[index]?.cancel()
     val leg = legs[index]
@@ -48,6 +51,7 @@ fun OnboardSession.startLiveFeed(index: Int) {
     vehicleJobs[index] = scope.launch {
         RelayClient.shared.vehicle(tripId).collect { vehicle ->
             liveVehicles[index] = vehicle
+            trackVehicle(vehicle, index)
             updateApproachingVehicle()
         }
     }
@@ -63,6 +67,8 @@ fun OnboardSession.retargetCurrentLeg(tripId: String) {
         val corrected = LegLiveMerger.merge(legs[index], trip, tripId) ?: return@launch
         val earlier = corrected.scheduledStartTime.isBefore(legs[index].scheduledStartTime)
         legs = legs.toMutableList().also { it[index] = corrected }
+        scheduleOffset = null
+        positionDelay = null
         crowdStatus = null
         startLiveFeed(index)
         showAlert(
@@ -76,6 +82,7 @@ fun OnboardSession.retargetCurrentLeg(tripId: String) {
             urgency = OnboardAnnouncer.Urgency.NOTICE
         )
         evaluate()
+        if (earlier && phase == OnboardPhase.RIDING) lookForFasterConnection()
     }
 }
 
@@ -91,10 +98,33 @@ fun OnboardSession.updateApproachingVehicle() {
 
 val OnboardSession.approachingVehicleDistance: Double?
     get() {
-        val vehicle = approachingVehicle ?: return null
+        val vehicle = approachingVehicleCoordinate(Instant.now()) ?: return null
         val leg = nextTransitLeg?.second ?: return null
-        return leg.from.coordinate.distanceTo(LatLng(vehicle.lat, vehicle.lon))
+        return leg.from.coordinate.distanceTo(vehicle)
     }
+
+fun OnboardSession.trackVehicle(vehicle: RelayClient.CrowdVehicle?, index: Int) {
+    if (vehicle == null) {
+        liveTracks.remove(index)
+        return
+    }
+    val now = Instant.now()
+    val track = liveTracks[index]
+    if (track != null) {
+        track.update(vehicle, now)
+    } else {
+        val trip = tripPaths[index] ?: return
+        LiveVehicleTrack.create(trip.first, vehicle, now)?.let { liveTracks[index] = it }
+    }
+}
+
+fun OnboardSession.approachingVehicleCoordinate(date: Instant): LatLng? {
+    val vehicle = approachingVehicle ?: return null
+    val fallback = LatLng(vehicle.lat, vehicle.lon)
+    val index = nextTransitLeg?.first ?: return fallback
+    val track = liveTracks[index] ?: return fallback
+    return track.coordinate(date, tripPaths[index]?.second) ?: fallback
+}
 
 fun OnboardSession.scheduledWalkerAlong(date: Instant): Double? {
     if (phase != OnboardPhase.WALKING) return null
@@ -115,7 +145,7 @@ fun OnboardSession.remainingApproach(date: Instant): Pair<Int, List<LatLng>>? {
     if (phase != OnboardPhase.WALKING && phase != OnboardPhase.WAITING) return null
     val index = nextTransitLeg?.first ?: return null
     val (tripPath, boardAlong) = tripPaths[index] ?: return null
-    val vehicle = approachingVehicle?.let { LatLng(it.lat, it.lon) } ?: estimatedVehicleCoordinate(date) ?: return null
+    val vehicle = approachingVehicleCoordinate(date) ?: estimatedVehicleCoordinate(date) ?: return null
     val projection = tripPath.project(vehicle, boardAlong) ?: return null
     if (projection.along >= boardAlong - 10) return null
     val coordinates = tripPath.slice(projection.along, boardAlong)
@@ -146,6 +176,7 @@ fun OnboardSession.apply(trip: Itinerary, index: Int) {
     val lastFrames = tripKeyFrames[index]?.second ?: Instant.EPOCH
     if (tripLeg != null && Instant.now().secondsSince(lastFrames) > 20) {
         tripKeyFrames[index] = VehicleVisualisation.calculateKeyFrames(tripLeg, tripLeg.legGeometry.points, 1e6) to Instant.now()
+        tripLegs[index] = tripLeg
         if (index in legs.indices) {
             val tripPath = RoutePath.encoded(tripLeg.legGeometry.points, 1e6)
             tripPath.project(legs[index].from.coordinate)?.let { tripPaths[index] = tripPath to it.along }
@@ -248,4 +279,71 @@ fun OnboardSession.checkDelay(leg: Leg, index: Int) {
         spoken = if (boarded) "$title. $message." else "$title. Départ de ${placeName(leg.from)}, ${spokenDeparture(leg.startTime)}.",
         urgency = OnboardAnnouncer.Urgency.NOTICE
     )
+}
+
+fun OnboardSession.checkStillOnBoard() {
+    val watch = alightWatch ?: return
+    val trip = tripPaths[watch.legIndex]
+    if (now.secondsSince(watch.since) >= 180 || legIndex > watch.legIndex + 1 || phase == OnboardPhase.RIDING || trip == null) {
+        alightWatch = null
+        return
+    }
+    val (tripPath, boardAlong) = trip
+    val location = usableLocation
+    val alightOnTrip = tripPath.project(watch.leg.to.coordinate, boardAlong)
+    val projection = if (location != null && alightOnTrip != null) tripPath.project(location.coordinate, alightOnTrip.along) else null
+    if (location == null || location.horizontalAccuracy > 30 || alightOnTrip == null || projection == null) {
+        alightWatch = watch.copy(onBoardSince = null)
+        return
+    }
+    val vehicleSpeed = if (watch.leg.mode.isMainlineRail) 6.0 else 4.0
+    val onBoard = projection.offset < 25 && projection.along > alightOnTrip.along + 15 && location.speed > vehicleSpeed
+    val since = watch.onBoardSince
+    when {
+        !onBoard -> alightWatch = watch.copy(onBoardSince = null)
+        since == null -> alightWatch = watch.copy(onBoardSince = now)
+        now.secondsSince(since) >= 7.5 -> {
+            alightWatch = null
+            resumeRide(watch, projection.along - alightOnTrip.along)
+        }
+    }
+}
+
+private fun OnboardSession.resumeRide(watch: OnboardSession.AlightWatch, pastAlight: Double) {
+    val index = watch.legIndex
+    if (index !in legs.indices) return
+    val tripLeg = tripLegs[index] ?: return
+    val stops = tripLeg.allStops
+    fun position(place: Place, lower: Int): Int? = stops.indices.firstOrNull { candidate ->
+        candidate > lower && (place.stopId?.let { stops[candidate].stopId == it } ?: (stops[candidate].name == place.name))
+    }
+    val boardIndex = position(watch.leg.from, -1) ?: return
+    val alightIndex = position(watch.leg.to, boardIndex) ?: return
+    if (alightIndex + 1 >= stops.size) return
+    val extended = LegLiveMerger.slice(tripLeg, boardIndex, alightIndex + 1) ?: return
+
+    arrivalJob?.cancel()
+    legs = legs.toMutableList().also { it[index] = extended }
+    val (path, alongs) = OnboardSession.buildPath(extended)
+    paths = paths.toMutableList().also { it[index] = path }
+    stopAlongs = stopAlongs.toMutableList().also { it[index] = alongs }
+    announcedStopAlerts = announcedStopAlerts.filterNot { it.startsWith("$index-") }.toMutableSet()
+    enterLeg(index, announce = false)
+    board(announce = false, verifiable = false)
+    val alightAlong = if (alongs.size >= 2) alongs[alongs.size - 2] else 0.0
+    alongInLeg = kotlin.math.min(path.length, alightAlong + kotlin.math.max(0.0, pastAlight))
+    announcedStopAlerts.add("$index-next")
+    announcedStopAlerts.add("$index-two")
+    val next = placeName(extended.to)
+    showAlert(
+        OnboardAlert(
+            severity = OnboardAlert.Severity.CRITICAL,
+            symbolName = "exclamationmark.octagon.fill",
+            title = "Vous avez dépassé votre arrêt",
+            message = "Descendez au prochain arrêt, $next."
+        ),
+        spoken = "Vous avez dépassé votre arrêt. Descendez au prochain arrêt, $next.",
+        urgency = OnboardAnnouncer.Urgency.CRITICAL
+    )
+    evaluate()
 }

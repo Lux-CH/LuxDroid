@@ -1,5 +1,8 @@
 package ch.cclerc.luxapp.ui.onboard
 
+import ch.cclerc.luxapp.ui.theme.legColor
+import ch.cclerc.luxapp.ui.itinerary.LocalTimelineLineColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -424,7 +427,7 @@ private fun BannerFooter(session: OnboardSession, foreground: Color) {
             }
             Footer {
                 if (nextName != null) {
-                    Symbol("arrow.down.to.line")
+                    Symbol("arrow.up.to.line")
                     Label("Prochain : $nextName", Modifier.weight(1f))
                 } else {
                     Symbol("figure.walk.departure")
@@ -559,7 +562,7 @@ fun OnboardBottomPanel(
 ) {
     val colors = LuxTheme.colors
     val density = LocalDensity.current
-    val summaryOnly = session.phase == OnboardPhase.WALKING && session.nextTransitLeg == null && session.legDisruptions.isEmpty()
+    val summaryOnly = session.phase == OnboardPhase.ARRIVED || (session.phase == OnboardPhase.WALKING && session.nextTransitLeg == null && session.legDisruptions.isEmpty())
     val expandedAlpha by animateFloatAsState(if (isExpanded) 1f else 0f, tween(250), label = "expandedAlpha")
 
     Column(
@@ -571,7 +574,7 @@ fun OnboardBottomPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .onSizeChanged { onCompactHeightChange(with(density) { it.height.toDp() }) }
-                .padding(top = 24.dp, bottom = if (session.endsWithButton) 2.dp else if (summaryOnly) 12.dp else 6.dp)
+                .padding(top = 24.dp, bottom = if (session.endsWithButton) 2.dp else if (summaryOnly) 24.dp else 6.dp)
         ) {
             SummaryRow(session, onEnd, Modifier.padding(horizontal = 22.dp))
             ContextRow(session, Modifier.padding(horizontal = 22.dp).padding(top = 12.dp))
@@ -656,13 +659,13 @@ private fun ContextRow(session: OnboardSession, modifier: Modifier) {
                 NextTransitRow(session, next)
                 val formation = session.formation
                 if (session.isInStation && formation != null) {
-                    TrainFormationView(formation, session.formationPlatformSectors)
+                    FormationSummary(formation, session.formationPlatformSectors)
                 }
             }
         }
         OnboardPhase.WAITING -> Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             session.formation?.let {
-                TrainFormationView(it, session.formationPlatformSectors, Modifier.padding(bottom = 2.dp))
+                FormationSummary(it, session.formationPlatformSectors, Modifier.padding(bottom = 2.dp))
             }
             session.rideInfo?.let { RideCommunityStrip(it) }
             val accent = LuxTheme.accent
@@ -837,17 +840,19 @@ private fun ExpandedContent(
     val leg = session.currentLeg
     Column(modifier.padding(horizontal = 22.dp).padding(top = 16.dp)) {
         if ((session.phase == OnboardPhase.RIDING || session.phase == OnboardPhase.WAITING) && leg != null) {
-            ItinerarySheetDetailStopsContentView(
-                stops = session.upcomingStops,
-                legColor = bright(leg, LuxTheme.accent),
-                fromStop = leg.from,
-                toStop = leg.to,
-                duration = leg.duration,
-                isMultipleLeg = false,
-                isRealTime = leg.realTime,
-                isCancelled = leg.cancelled,
-                onSelectStop = onSelectStop
-            )
+            CompositionLocalProvider(LocalTimelineLineColor provides legColor(leg)) {
+                ItinerarySheetDetailStopsContentView(
+                    stops = session.upcomingStops,
+                    legColor = bright(leg, LuxTheme.accent),
+                    fromStop = leg.from,
+                    toStop = leg.to,
+                    duration = leg.duration,
+                    isMultipleLeg = false,
+                    isRealTime = leg.realTime,
+                    isCancelled = leg.cancelled,
+                    onSelectStop = onSelectStop
+                )
+            }
             if (session.canReportRide) {
                 HorizontalDivider(Modifier.padding(vertical = 16.dp), thickness = 0.5.dp, color = colors.separator)
                 RideRatingSection(session.rideReports, session.rideInfo) { attribute, level ->

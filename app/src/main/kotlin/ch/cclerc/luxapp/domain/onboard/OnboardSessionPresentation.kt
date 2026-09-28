@@ -241,11 +241,13 @@ fun OnboardSession.scheduleCrowdPrompt() {
 }
 
 fun OnboardSession.reportCrowdPosition(leg: Leg, offsetOK: Boolean) {
-    if (!isSharingPosition || leg.mode.isMainlineRail || !offsetOK) return
+    if (!isSharingPosition || !offsetOK) return
     val tripId = leg.tripId
     if (tripId.isNullOrEmpty()) return
     val location = usableLocation ?: return
-    if (location.horizontalAccuracy > 50 || now.secondsSince(lastCrowdReportAt) < crowdReportInterval) return
+    if (location.horizontalAccuracy > (if (leg.mode.isMainlineRail) 20.0 else 50.0)) return
+    if (leg.mode.isMainlineRail && !hasTrainGPS) return
+    if (now.secondsSince(lastCrowdReportAt) < crowdReportInterval) return
     lastCrowdReportAt = now
     val board = boarding?.takeIf { it.legIndex == legIndex }
     RelayClient.shared.reportOnboardPosition(
@@ -264,6 +266,11 @@ fun OnboardSession.startCrowdAcks() {
     crowdAckJob = scope.launch {
         RelayClient.shared.crowdAcks.collect { ack ->
             if (ack.tripId != currentLeg?.tripId || phase != OnboardPhase.RIDING) return@collect
+            val watched = ack.watched
+            if (watched != null && watched != crowdWatched) {
+                crowdWatched = watched
+                if (watched) lastCrowdReportAt = Instant.EPOCH
+            }
             val state: CrowdState? = when (ack.status) {
                 "ok" -> CrowdState.Contributing(ack.riders ?: 1, ack.delay ?: 0)
                 "learning" -> CrowdState.Learning

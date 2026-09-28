@@ -24,6 +24,7 @@ fun OnboardSession.handle(fix: OnboardFix, date: Instant = Instant.now()) {
     hasWeakGPS = fix.horizontalAccuracy > usableAccuracy
     userLocation = fix
     motion.record(fix)
+    motionRecorder.record(fix)
     if (phase == OnboardPhase.WALKING && fix.horizontalAccuracy <= 30 && fix.speed >= 0.4 && fix.speed <= 3) {
         measuredPace = measuredPace?.let { it * 0.92 + fix.speed * 0.08 } ?: fix.speed
         paceSamples += 1
@@ -35,6 +36,7 @@ fun OnboardSession.handle(fix: OnboardFix, date: Instant = Instant.now()) {
         resolveStartingPoint(fix)
     }
     evaluate()
+    checkStillOnBoard()
     updateNearbyStations()
 }
 
@@ -149,7 +151,7 @@ fun OnboardSession.evaluateWalking() {
         offRouteStreak = 0
         if (isOffRoute) isOffRoute = false
     }
-    if (offRouteStreak >= 3 && !isOffRoute && !isInStation) {
+    if (offRouteStreak >= 3 && !isOffRoute && !isInStation && alightWatch?.onBoardSince == null) {
         isOffRoute = true
         reroute()
     }
@@ -276,15 +278,18 @@ fun OnboardSession.evaluateRiding() {
     }
 
     var locatedByGPS = false
+    var offset = Double.POSITIVE_INFINITY
     val location = usableLocation
     val projection = location?.let { path.project(it.coordinate, alongInLeg) }
     if (location != null && projection != null && projection.offset < max(80.0, location.horizontalAccuracy)) {
+        offset = projection.offset
         val clearlyBehind = location.horizontalAccuracy <= 30 && alongInLeg - projection.along > 40
         alongInLeg = if (clearlyBehind) projection.along else max(alongInLeg - 15, projection.along)
         locatedByGPS = true
     } else {
         alongInLeg = max(alongInLeg, estimatedAlongByTime(leg, alongs))
     }
+    ridesOffPath = usableLocation != null && offset > 15
 
     dwellingStopIndex = alongs.indexOfFirst { abs(it - alongInLeg) <= stopRadius }.takeIf { it >= 0 }
     val next = alongs.indexOfFirst { it > alongInLeg + stopRadius * 0.7 }.takeIf { it >= 0 } ?: (alongs.size - 1)
@@ -293,10 +298,11 @@ fun OnboardSession.evaluateRiding() {
 
     if (locatedByGPS) {
         reportCrowdPosition(leg, offsetOK = true)
-        updatePositionDelay(leg, alongs)
+        val gpsFix = usableLocation
+        if (gpsFix != null && gpsFix.horizontalAccuracy <= 30 && offset <= 30) {
+            measureScheduleOffset(leg, alongInLeg)
+        }
         checkDelay(leg, legIndex)
-    } else if (positionDelay != null && now.secondsSince(positionDelayAt) > 60) {
-        positionDelay = null
     }
 
     val alightAlong = alongs.lastOrNull() ?: path.length
@@ -305,20 +311,6 @@ fun OnboardSession.evaluateRiding() {
         val atAlight = gpsLocation.coordinate.distanceTo(leg.to.coordinate) < 45
         if (atAlight && (gpsLocation.speed < 1.5 || alongInLeg >= alightAlong - 10)) {
             completeLeg()
-            return
-        }
-        if (alongInLeg > alightAlong + 150) {
-            showAlert(
-                OnboardAlert(
-                    severity = OnboardAlert.Severity.CRITICAL,
-                    symbolName = "exclamationmark.octagon.fill",
-                    title = "Vous avez dépassé votre arrêt",
-                    message = "Descendez au prochain arrêt et suivez le nouvel itinéraire à pied."
-                ),
-                spoken = "Vous avez dépassé votre arrêt. Descendez au prochain arrêt.",
-                urgency = OnboardAnnouncer.Urgency.CRITICAL
-            )
-            completeLeg(announce = false)
             return
         }
     } else if (now.isAfter(leg.endTime.plusSeconds(45))) {
@@ -348,6 +340,12 @@ fun OnboardSession.evaluateRidingTrain(leg: Leg, alongs: List<Double>) {
     val locked = trainGPSStreak >= 3 && now.secondsSince(trainGPSAt) < 15
     if (locked != hasTrainGPS) hasTrainGPS = locked
 
+    if (gpsAlong != null) {
+        measureScheduleOffset(leg, gpsAlong)
+        reportCrowdPosition(leg, offsetOK = true)
+        checkDelay(leg, legIndex)
+    }
+
     if (locked) {
         if (gpsAlong != null && alongInLeg - gpsAlong > 60) {
             alongInLeg = gpsAlong
@@ -356,7 +354,7 @@ fun OnboardSession.evaluateRidingTrain(leg: Leg, alongs: List<Double>) {
             alongInLeg = max(alongInLeg - 30, along)
         }
     } else {
-        alongInLeg = timetable
+        alongInLeg = if (hasFreshScheduleOffset) max(alongInLeg, timetable) else timetable
     }
     dwellingStopIndex = alongs.indexOfFirst { abs(it - alongInLeg) <= stopRadius }.takeIf { it >= 0 }
     val next = alongs.indexOfFirst { it > alongInLeg + stopRadius * 0.7 }.takeIf { it >= 0 } ?: (alongs.size - 1)
@@ -374,14 +372,16 @@ fun OnboardSession.evaluateRidingTrain(leg: Leg, alongs: List<Double>) {
     }
 }
 
+val OnboardSession.hasFreshScheduleOffset: Boolean
+    get() = scheduleOffset?.let { now.secondsSince(it.second) < 1200 } ?: false
+
 val OnboardSession.estimatedAlightTime: Instant?
     get() {
-        if (phase != OnboardPhase.RIDING || followsTimetable) return null
-        val delay = positionDelay ?: return null
-        if (now.secondsSince(positionDelayAt) >= 60) return null
+        if (phase != OnboardPhase.RIDING || !hasFreshScheduleOffset) return null
+        val offset = scheduleOffset ?: return null
         val leg = currentLeg ?: return null
-        val scheduled = leg.to.scheduledArrival ?: leg.to.scheduledDeparture ?: return null
-        val estimate = scheduled.plusSecondsDouble(delay)
+        val scheduled = leg.to.scheduledArrival ?: leg.to.scheduledDeparture ?: leg.scheduledEndTime
+        val estimate = scheduled.plusSecondsDouble(-offset.first)
         return if (estimate.isAfter(now)) estimate else now
     }
 
@@ -395,42 +395,55 @@ val OnboardSession.currentLegDelayMinutes: Int
         return currentLeg?.arrivalDelayMinutes ?: 0
     }
 
-fun OnboardSession.updatePositionDelay(leg: Leg, alongs: List<Double>) {
-    if (alongInLeg <= (alongs.firstOrNull() ?: 0.0) + 60) return
-    val stops = leg.allStops
-    fun arrival(index: Int): Instant? = stops[index].scheduledArrival ?: stops[index].scheduledDeparture
-    fun departure(index: Int): Instant? = stops[index].scheduledDeparture ?: stops[index].scheduledArrival
-
-    var delay: Double? = null
-    val stop = dwellingStopIndex
-    val stopArrive = stop?.let(::arrival)
-    val stopLeave = stop?.let(::departure)
-    if (stop != null && stopArrive != null && stopLeave != null) {
-        delay = when {
-            now.isBefore(stopArrive) -> now.secondsSince(stopArrive)
-            !now.isAfter(stopLeave) -> 0.0
-            else -> now.secondsSince(stopLeave)
-        }
-    } else {
-        val segment = (0 until alongs.size - 1).firstOrNull { alongInLeg >= alongs[it] && alongInLeg < alongs[it + 1] }
-        if (segment != null) {
-            val leave = departure(segment)
-            val arrive = arrival(segment + 1)
-            if (leave != null && arrive != null) {
-                val span = alongs[segment + 1] - alongs[segment]
-                val fraction = if (span > 0) (alongInLeg - alongs[segment]) / span else 0.0
-                val scheduled = leave.plusSecondsDouble(arrive.secondsSince(leave) * fraction)
-                delay = now.secondsSince(scheduled)
-            }
-        }
+fun OnboardSession.scheduleAlong(date: Instant, leg: Leg, hint: Double): Double? {
+    val key = "$legIndex|${leg.tripId ?: ""}|${leg.scheduledStartTime.epochSecond}"
+    if (scheduleKeyFrames?.first != key) {
+        scheduleKeyFrames = key to VehicleVisualisation.calculateKeyFrames(leg, leg.legGeometry.points, 1e6, scheduled = true)
     }
-    val value = delay ?: return
-    if (value <= -300 || value >= 5400) return
-    positionDelay = positionDelay?.let { it * 0.7 + value * 0.3 } ?: value
+    val frames = scheduleKeyFrames?.second ?: return null
+    if (frames.isEmpty()) return null
+    val path = currentPath ?: return null
+    val position = VehicleVisualisation.interpolatePosition(date.epochSeconds(), frames) ?: return null
+    return path.project(position, hint)?.along
+}
+
+fun OnboardSession.measureScheduleOffset(leg: Leg, along: Double) {
+    val path = currentPath ?: return
+    if (along <= 30 || along >= path.length - 30) return
+    val lower = now.minusSeconds(5400)
+    val upper = now.plusSeconds(1800)
+    fun earliest(reached: (Double) -> Boolean): Instant? {
+        val last = scheduleAlong(upper, leg, along) ?: return null
+        if (!reached(last)) return null
+        var low = lower
+        var high = upper
+        repeat(16) {
+            val middle = low.plusMillis((high.toEpochMilli() - low.toEpochMilli()) / 2)
+            val value = scheduleAlong(middle, leg, along)
+            if (value != null && reached(value)) high = middle else low = middle
+        }
+        return high
+    }
+    val reachedAt = earliest { it >= along - 8 } ?: return
+    val leftAt = earliest { it > along + 8 } ?: reachedAt
+    val measured = when {
+        now.isBefore(reachedAt) -> reachedAt.secondsSince(now)
+        now.isAfter(leftAt) -> leftAt.secondsSince(now)
+        else -> 0.0
+    }
+    if (measured <= -5400 || measured >= 900) return
+    val smoothed = scheduleOffset?.let { if (abs(it.first - measured) > 120) measured else it.first * 0.6 + measured * 0.4 } ?: measured
+    scheduleOffset = smoothed to now
+    val delay = (-smoothed / 15).roundToInt() * 15.0
+    if (positionDelay != delay) positionDelay = delay
     positionDelayAt = now
 }
 
 fun OnboardSession.estimatedAlongByTime(leg: Leg, alongs: List<Double>): Double {
+    val offset = scheduleOffset
+    if (hasFreshScheduleOffset && offset != null) {
+        scheduleAlong(now.plusSecondsDouble(offset.first), leg, alongInLeg)?.let { return it }
+    }
     keyFrameAlong(leg)?.let { return it }
     val stops = leg.allStops
     val times = stops.mapIndexed { index, stop ->
@@ -474,7 +487,7 @@ fun OnboardSession.announceStopsIfNeeded(leg: Leg) {
     if (alongs.size >= 2 && phase == OnboardPhase.RIDING && "$key-final" !in announcedStopAlerts) {
         val alight = alongs[alongs.size - 1]
         val previous = alongs[alongs.size - 2]
-        if (alight - previous > 300 && alongInLeg > previous && alight - alongInLeg <= 20) {
+        if (alight - previous > 300 && alongInLeg > previous && alight - alongInLeg <= 30) {
             announcedStopAlerts.add("$key-final")
             announcer.speak("Descendez maintenant, $alightName.")
         }
@@ -521,8 +534,10 @@ fun OnboardSession.enterLeg(index: Int, announce: Boolean = true) {
     hasTrainGPS = false
     trainGPSStreak = 0
     crowdStatus = null
+    crowdWatched = false
     rideReports.clear()
     positionDelay = null
+    scheduleOffset = null
     showsCrowdPrompt = false
     crowdPromptJob?.cancel()
     lastAtBoardingStop = null
@@ -581,6 +596,10 @@ fun OnboardSession.board(announce: Boolean = true, verifiable: Boolean = true) {
 fun OnboardSession.completeLeg(announce: Boolean = true) {
     if (phase == OnboardPhase.RIDING && isSharingPosition) {
         ch.cclerc.luxcom.relay.RelayClient.shared.stopOnboardReports()
+    }
+    val riding = currentLeg
+    if (phase == OnboardPhase.RIDING && riding != null) {
+        alightWatch = OnboardSession.AlightWatch(legIndex, riding, now)
     }
     if (legIndex >= legs.size - 1) {
         arrive()

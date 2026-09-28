@@ -97,7 +97,6 @@ fun OnboardNavigationScreen(
     val sheets = LocalSheetController.current
     val covers = LocalCoverController.current
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val bottomSafe = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     var isFollowing by remember { mutableStateOf(true) }
     var showsOverview by remember { mutableStateOf(false) }
@@ -219,7 +218,7 @@ fun OnboardNavigationScreen(
             isFollowing = isFollowing,
             showsOverview = showsOverview,
             topInset = topInset + 4.dp + bannerHeight + 12.dp,
-            bottomInset = compactHeight + bottomSafe + 40.dp,
+            bottomInset = sheetState.peekHeightDp + 40.dp,
             onUserMovedMap = {
                 if (isFollowing || showsOverview) {
                     isFollowing = false
@@ -269,15 +268,17 @@ fun OnboardNavigationScreen(
                 }
             }
 
-            Spacer(Modifier.weight(1f))
+        }
 
-            AnimatedVisibility(
-                visible = !isFollowing && !showsOverview,
-                enter = slideInHorizontally { -it } + fadeIn(),
-                exit = slideOutHorizontally { -it } + fadeOut()
-            ) {
-                RecenterButton(Modifier.padding(bottom = compactHeight + bottomSafe + 56.dp)) { recenter() }
-            }
+        AnimatedVisibility(
+            visible = !isFollowing && !showsOverview,
+            enter = slideInHorizontally { it } + fadeIn(),
+            exit = slideOutHorizontally { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = sheetState.peekHeightDp + 16.dp)
+        ) {
+            RecenterButton { recenter() }
         }
 
         Column(
@@ -304,7 +305,7 @@ fun OnboardNavigationScreen(
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
             }
-            Spacer(Modifier.height(compactHeight + bottomSafe + 56.dp))
+            Spacer(Modifier.height(sheetState.peekHeightDp + 16.dp))
         }
 
         DetentSheet(state = sheetState, cornerRadius = LuxShapes.r38, showDragIndicator = true) {

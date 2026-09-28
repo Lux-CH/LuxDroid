@@ -47,7 +47,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     val arrivalRadius = 20.0
     val stopRadius = 30.0
     val usableAccuracy = 80.0
-    val crowdReportInterval = 10.0
+    val crowdReportInterval: Double get() = if (crowdWatched) 2.0 else 10.0
     val rerouteCooldown = 20.0
 
     internal val appContext: Context = context.applicationContext
@@ -76,7 +76,12 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     var legDisruptions: List<LegDisruption> by mutableStateOf(emptyList())
     internal val tripPaths = mutableMapOf<Int, Pair<RoutePath, Double>>()
     internal var walkOffset = Double.POSITIVE_INFINITY
+    internal var ridesOffPath = false
+    internal var alightWatch: AlightWatch? = null
+    internal val tripLegs = mutableMapOf<Int, Leg>()
     internal var legKeyFrames: Pair<String, List<VehicleVisualisation.KeyFrame>>? = null
+    internal var scheduleKeyFrames: Pair<String, List<VehicleVisualisation.KeyFrame>>? = null
+    internal var scheduleOffset: Pair<Double, Instant>? = null
     internal var knownDisruptions: List<Disruption>? = null
     internal var announcedDisruptionIds: Set<String>? = null
     var nextManeuver: WalkManeuver? by mutableStateOf(null)
@@ -122,6 +127,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
 
     internal val locationProvider = OnboardLocationProvider(appContext)
     internal val motion = OnboardMotionDetector(appContext)
+    internal val motionRecorder = OnboardMotionRecorder(appContext)
     internal var measuredPace: Double? = null
     internal val tripKeyFrames = mutableMapOf<Int, Pair<List<VehicleVisualisation.KeyFrame>, Instant>>()
     internal var paceSamples = 0
@@ -165,6 +171,8 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     internal var trainFix: Pair<Double, Double> = 0.0 to 0.0
     internal var lastRerouteAt: Instant = Instant.EPOCH
     internal var lastCrowdReportAt: Instant = Instant.EPOCH
+    internal var crowdWatched = false
+    internal val liveTracks = mutableMapOf<Int, LiveVehicleTrack>()
     internal val spokenManeuvers = mutableSetOf<String>()
     internal var announcedStopAlerts = mutableSetOf<String>()
     internal val announcedDelays = mutableMapOf<Int, Int>()
@@ -173,6 +181,8 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     internal var missedDepartureAlerted = mutableSetOf<Int>()
 
     data class Boarding(val legIndex: Int, val stopId: String, val at: Instant)
+
+    data class AlightWatch(val legIndex: Int, val leg: Leg, val since: Instant, val onBoardSince: Instant? = null)
 
     init {
         val builtPaths = mutableListOf<RoutePath>()
@@ -267,6 +277,9 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         locationProvider.onHeading = { heading -> handle(heading) }
         locationProvider.start()
         motion.start()
+        if (Settings.onboardMotionRecording) {
+            motionRecorder.start(legs.mapNotNull { it.routeShortName }.joinToString(" ") + " → " + destinationName)
+        }
         isTracking = true
 
         RelayClient.shared.setBackgroundKeepAlive(true)
@@ -311,6 +324,20 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         }
     }
 
+    fun recordContext() {
+        val leg = currentLeg
+        motionRecorder.context(
+            phase = phase.name.lowercase(),
+            leg = legIndex,
+            mode = leg?.mode?.name ?: "",
+            line = leg?.routeShortName ?: "",
+            trip = leg?.tripId ?: "",
+            nextStop = nextStopIndex,
+            along = alongInLeg,
+            locked = hasTrainGPS
+        )
+    }
+
     fun refreshMotion() {
         if (!isTracking) return
         motion.stop()
@@ -322,6 +349,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         isTracking = false
         locationProvider.stop()
         motion.stop()
+        motionRecorder.stop()
         RelayClient.shared.stopOnboardReports()
         RelayClient.shared.setBackgroundKeepAlive(false)
     }
@@ -400,14 +428,16 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
                 (leg.ridesByTimetable && phase == OnboardPhase.RIDING && !hasTrainGPS)
         }
 
+    val riderIsOnPath: Boolean
+        get() = when (phase) {
+            OnboardPhase.RIDING -> currentLeg?.ridesByTimetable == true || !ridesOffPath
+            OnboardPhase.WALKING -> !isOffRoute && walkOffset <= 20
+            else -> false
+        }
+
     val riderCoordinate: LatLng?
         get() {
-            if (phase == OnboardPhase.RIDING && currentLeg?.ridesByTimetable == true) {
-                currentPath?.coordinate(alongInLeg)?.let { return it }
-            }
-            if (phase == OnboardPhase.WALKING && !isOffRoute && walkOffset <= 20) {
-                currentPath?.coordinate(alongInLeg)?.let { return it }
-            }
+            if (riderIsOnPath) currentPath?.coordinate(alongInLeg)?.let { return it }
             return userLocation?.coordinate
         }
 
@@ -419,7 +449,12 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
 
     fun skipToNextStep() {
         ch.cclerc.luxapp.core.HapticFeedback.lightImpact()
-        if (phase == OnboardPhase.WAITING) board() else completeLeg()
+        if (phase == OnboardPhase.WAITING) {
+            board()
+        } else {
+            completeLeg()
+            alightWatch = null
+        }
     }
 
     fun requestNotificationPermission() {
@@ -444,8 +479,17 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
                 replan = null
             }
         }
+        replan?.let { proposal ->
+            val expiresAt = proposal.expiresAt
+            if (proposal.reason == ReplanReason.FASTER &&
+                (phase != OnboardPhase.RIDING || (expiresAt != null && !now.isBefore(expiresAt)))
+            ) {
+                replan = null
+            }
+        }
         lookForEarlierDeparture()
         catchUpWithVehicle()
+        recordContext()
         updateEstimates()
         refreshFormationIfNeeded()
         val fixAt = lastFixAt

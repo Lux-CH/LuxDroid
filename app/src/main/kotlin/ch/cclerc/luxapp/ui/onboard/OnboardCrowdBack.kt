@@ -336,6 +336,7 @@ fun ReplanCard(session: OnboardSession, modifier: Modifier = Modifier) {
             ReplanReason.MISSED_DEPARTURE -> Triple("Départ manqué", "arrow.triangle.branch", colors.systemOrange)
             ReplanReason.CANCELLED -> Triple("Véhicule supprimé", "xmark.octagon.fill", colors.systemRed)
             ReplanReason.EARLIER -> Triple("Départ plus tôt possible", "hare.fill", colors.systemGreen)
+            ReplanReason.FASTER -> Triple("Correspondance plus rapide", "hare.fill", colors.systemGreen)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -348,7 +349,7 @@ fun ReplanCard(session: OnboardSession, modifier: Modifier = Modifier) {
             }
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(title, style = LuxTheme.type.headline, color = colors.label)
-                Text("Nouvel itinéraire trouvé", style = LuxTheme.type.caption, color = colors.secondaryLabel)
+                Text(session.replan?.exitName?.let { "Descendez à $it" } ?: "Nouvel itinéraire trouvé", style = LuxTheme.type.caption, color = colors.secondaryLabel)
             }
         }
 
@@ -401,7 +402,7 @@ private fun ProposalRow(session: OnboardSession, proposal: ReplanProposal) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val transit: Leg? = proposal.firstTransit
+        val transit: Leg? = proposal.nextTransit
         if (transit != null) {
             LinePill(transit.routeShortName ?: "", transit.agencyId, transit.mode, width = 42.dp, height = 26.dp, fontSize = 14.sp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {

@@ -8,14 +8,16 @@ import ch.cclerc.luxcom.api.getDeparturesForStop
 import ch.cclerc.luxcom.api.getRoute
 import ch.cclerc.luxcom.api.getTrip
 import ch.cclerc.luxcom.model.Place
+import ch.cclerc.luxcom.model.trip.Itinerary
 import ch.cclerc.luxcom.model.trip.Leg
 import ch.cclerc.luxcom.model.trip.RouteOptions
 import java.time.Instant
 import java.util.UUID
 import kotlin.math.max
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-enum class ReplanReason { CONNECTION, MISSED_DEPARTURE, CANCELLED, EARLIER }
+enum class ReplanReason { CONNECTION, MISSED_DEPARTURE, CANCELLED, EARLIER, FASTER }
 
 class ReplanProposal(
     val reason: ReplanReason,
@@ -23,10 +25,15 @@ class ReplanProposal(
     val legs: List<Leg>,
     val arrival: Instant,
     val lateBy: Double,
-    val autoApplyAt: Instant?
+    val autoApplyAt: Instant?,
+    val expiresAt: Instant? = null,
+    val exitName: String? = null,
+    val ridingTripId: String? = null
 ) {
     val id: String = UUID.randomUUID().toString()
     val firstTransit: Leg? get() = legs.firstOrNull { it.isTransit }
+    val nextTransit: Leg?
+        get() = if (ridingTripId == null) firstTransit else legs.firstOrNull { it.isTransit && it.tripId != ridingTripId }
 
     override fun equals(other: Any?): Boolean = other is ReplanProposal && other.id == id
     override fun hashCode(): Int = id.hashCode()
@@ -132,7 +139,13 @@ fun OnboardSession.acceptReplan() {
     refreshDisruptions()
     loadStationLayouts()
 
-    if (keep <= legIndex) enterLeg(keep)
+    val staysAboard = phase == OnboardPhase.RIDING && keep == legIndex && legs[keep].tripId == proposal.ridingTripId
+    if (staysAboard) {
+        nextStopIndex = 1
+        announcedStopAlerts = announcedStopAlerts.filter { !it.startsWith("$keep-") }.toMutableSet()
+    } else if (keep <= legIndex) {
+        enterLeg(keep)
+    }
     arrivalDate = proposal.arrival
     evaluate()
     showAlert(
@@ -205,6 +218,68 @@ fun OnboardSession.lookForEarlierDeparture() {
         announcer.announce(
             "Départ plus tôt possible : ${transit.spokenLineName}, ${spokenDeparture(transit.startTime)}, arrivée à ${formatTime(proposal.arrival)}.",
             notificationTitle = "Départ plus tôt possible",
+            urgency = OnboardAnnouncer.Urgency.NOTICE
+        )
+    }
+}
+
+fun OnboardSession.lookForFasterConnection() {
+    if (!isRunning || phase != OnboardPhase.RIDING || replan != null || isReplanning || earlierJob != null) return
+    if (legIndex >= legs.size - 1) return
+    val leg = currentLeg ?: return
+    if (!leg.isTransit) return
+    val tripId = leg.tripId ?: return
+    val destination = legs.lastOrNull()?.to ?: return
+    val stops = leg.allStops
+    val exits = stops.indices.filter { it >= max(1, nextStopIndex) }.takeLast(4)
+    if (exits.isEmpty()) return
+    val index = legIndex
+    val target = routeTarget(destination)
+    val currentArrival = arrivalDate
+    earlierJob = scope.launch {
+        val results = exits.mapNotNull { exit ->
+            val stop = stops[exit]
+            val stopId = stop.stopId ?: return@mapNotNull null
+            val time = (stop.arrival ?: stop.scheduledArrival ?: stop.departure ?: Instant.now()).plusSeconds(30)
+            val options = savedRouteOptions(RouteOptions.RouteLocation(stopId), target, time)
+            exit to async { runCatching { getRoute(options) }.getOrNull() }
+        }
+        var best: Pair<Int, Itinerary>? = null
+        for ((exit, deferred) in results) {
+            val trip = deferred.await()
+            val arrivalAtExit = stops[exit].arrival ?: stops[exit].scheduledArrival ?: Instant.now()
+            for (itinerary in trip?.itineraries.orEmpty()) {
+                if (itinerary.startTime.isBefore(arrivalAtExit.minusSeconds(60)) || itinerary.legs.any { it.tripId == tripId }) continue
+                if (best == null || itinerary.endTime.isBefore(best.second.endTime)) best = exit to itinerary
+            }
+        }
+        earlierJob = null
+        val found = best ?: return@launch
+        if (!isRunning || phase != OnboardPhase.RIDING || legIndex != index || replan != null) return@launch
+        if (!found.second.endTime.isBefore(currentArrival.minusSeconds(120))) return@launch
+        val exitsAtAlight = found.first == stops.size - 1
+        val newLegs = found.second.legs.toMutableList()
+        if (!exitsAtAlight) {
+            val shortened = LegLiveMerger.slice(leg, 0, found.first) ?: return@launch
+            newLegs.add(0, shortened)
+        }
+        val exit = stops[found.first]
+        val proposal = ReplanProposal(
+            reason = ReplanReason.FASTER,
+            replaceFrom = if (exitsAtAlight) index + 1 else index,
+            legs = newLegs,
+            arrival = found.second.endTime,
+            lateBy = found.second.endTime.secondsSince(currentArrival),
+            autoApplyAt = null,
+            expiresAt = (exit.arrival ?: exit.scheduledArrival)?.minusSeconds(30),
+            exitName = placeName(exit),
+            ridingTripId = tripId
+        )
+        replan = proposal
+        val next = proposal.nextTransit?.let { ", puis prenez ${it.spokenLineName}" } ?: ""
+        announcer.announce(
+            "Correspondance plus rapide : descendez à ${proposal.exitName ?: ""}$next, arrivée à ${formatTime(proposal.arrival)}.",
+            notificationTitle = "Correspondance plus rapide",
             urgency = OnboardAnnouncer.Urgency.NOTICE
         )
     }

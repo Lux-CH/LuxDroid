@@ -55,6 +55,7 @@ import ch.cclerc.luxapp.domain.onboard.allStops
 import ch.cclerc.luxapp.domain.onboard.bearingTo
 import ch.cclerc.luxapp.domain.onboard.capitalizedFirstLetter
 import ch.cclerc.luxapp.domain.onboard.coordinate
+import ch.cclerc.luxapp.domain.onboard.approachingVehicleCoordinate
 import ch.cclerc.luxapp.domain.onboard.estimatedVehicleCoordinate
 import ch.cclerc.luxapp.domain.onboard.isTransit
 import ch.cclerc.luxapp.domain.onboard.offset
@@ -104,6 +105,8 @@ import org.maplibre.compose.expressions.dsl.asNumber
 import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.expressions.dsl.convertToColor
 import org.maplibre.compose.expressions.dsl.dp
+import org.maplibre.compose.expressions.dsl.step
+import org.maplibre.compose.sources.GeoJsonOptions
 import org.maplibre.compose.expressions.value.LineCap
 import org.maplibre.compose.expressions.value.LineJoin
 import org.maplibre.compose.layers.CircleLayer
@@ -117,6 +120,7 @@ import org.maplibre.spatialk.geojson.Position
 private val MapWalkBlue = Color(red = 0.1f, green = 0.5f, blue = 1f)
 private val MapWalkBlueDark = Color(red = 0.05f, green = 0.3f, blue = 0.7f)
 private const val TRANSITION_SECONDS = 0.4
+private val LineMetricsOptions = GeoJsonOptions(lineMetrics = true)
 
 private class OnboardCameraMotion {
     var puck by mutableStateOf<LatLng?>(null)
@@ -131,6 +135,10 @@ private class OnboardCameraMotion {
     var transition: Pair<CameraPosition, Double>? = null
     var lastFrame: Double? = null
     var detail by mutableStateOf(StationDetail.HIDDEN)
+    var approach by mutableStateOf<Pair<Int, List<LatLng>>?>(null)
+    var approachAt = 0.0
+    var puckAlong: Pair<Int, Double>? = null
+    var approachingVehicle by mutableStateOf<LatLng?>(null)
 }
 
 @Composable
@@ -208,7 +216,18 @@ fun OnboardMapView(
                     fun blend(constant: Double) = 1 - exp(-dt / constant)
 
                     glidePuck(session, motion, ::blend)
+                    if (timestamp - motion.approachAt > 1) {
+                        motion.approachAt = timestamp
+                        val next = session.remainingApproach(Instant.now())
+                        if (next?.first != motion.approach?.first || next?.second?.size != motion.approach?.second?.size ||
+                            next?.second?.firstOrNull() != motion.approach?.second?.firstOrNull()
+                        ) {
+                            motion.approach = next
+                        }
+                    }
                     glideRouteSplit(session, motion, timestamp, ::blend)
+                    val approaching = session.approachingVehicleCoordinate(Instant.now())
+                    if (approaching != motion.approachingVehicle) motion.approachingVehicle = approaching
                     if (following) {
                         driveCamera(session, motion, cameraState, followPadding, mapHeight, timestamp, ::blend)
                     }
@@ -219,8 +238,10 @@ fun OnboardMapView(
             }
         }
 
-        val routeData = routeFeatures(session, motion.appliedAlong, accent)
-        val approach = session.remainingApproach(Instant.now())
+        val routeData = routeFeatures(session, accent)
+        val currentLength = session.currentPath?.length ?: 0.0
+        val fraction = if (currentLength > 0) motion.appliedAlong / currentLength else 0.0
+        val approach = motion.approach
         val arrow = arrowFor(session)
         val stopDots = stopDotFeatures(session, accent)
 
@@ -241,7 +262,7 @@ fun OnboardMapView(
                 ApproachLayer(approach?.let { (index, coordinates) ->
                     coordinates to getLegColor(session.legs[index], false, accent).copy(alpha = 0.35f)
                 })
-                RouteLayers(routeData, session.currentLeg?.isTransit == true)
+                RouteLayers(routeData, fraction, session.currentLeg?.isTransit == true)
                 ArrowLayers(arrow)
                 StopDotLayer(stopDots.first)
             }
@@ -276,9 +297,9 @@ fun OnboardMapView(
         }
 
         val nextLeg = session.nextTransitLeg?.second
-        val vehicle = session.approachingVehicle
-        if (vehicle != null && nextLeg != null) {
-            AnnotationOverlayItem(vehicle.lat, vehicle.lon, projector, overlayModifier) {
+        val vehicle = motion.approachingVehicle
+        if (session.approachingVehicle != null && vehicle != null && nextLeg != null) {
+            AnnotationOverlayItem(vehicle.latitude, vehicle.longitude, projector, overlayModifier) {
                 LiveVehicleBadge(nextLeg, accent)
             }
         } else if (session.hasEstimatedVehicle && nextLeg != null) {
@@ -329,13 +350,27 @@ private fun settledDetail(current: StationDetail, distance: Double): StationDeta
 private fun glidePuck(session: OnboardSession, motion: OnboardCameraMotion, blend: (Double) -> Double) {
     val target = session.riderCoordinate ?: return
     val current = motion.puck
-    motion.puck = if (current != null && current.distanceTo(target) < 250) {
+    val path = session.currentPath
+    motion.puck = if (session.riderIsOnPath && path != null) {
+        val goal = session.alongInLeg
+        val previous = motion.puckAlong
+        val along = if (previous != null && previous.first == session.legIndex && abs(goal - previous.second) < 250) {
+            previous.second + (goal - previous.second) * blend(0.27)
+        } else {
+            goal
+        }
+        motion.puckAlong = session.legIndex to along
+        val onPath = path.coordinate(along)
+        if (onPath != null && (current == null || current.distanceTo(onPath) < 60)) onPath else target
+    } else if (current != null && current.distanceTo(target) < 250) {
+        motion.puckAlong = null
         val factor = blend(0.27)
         LatLng(
             current.latitude + (target.latitude - current.latitude) * factor,
             current.longitude + (target.longitude - current.longitude) * factor
         )
     } else {
+        motion.puckAlong = null
         target
     }
     val targetHeading = session.heading
@@ -444,39 +479,35 @@ private fun driveCamera(
     cameraState.position = cameraFor(center, motion.followDistance, motion.followPitch, motion.followHeading ?: 0.0, padding, mapHeight)
 }
 
-private class RouteData(
+private data class RouteData(
     val past: List<List<LatLng>>,
-    val travelled: List<LatLng>,
-    val remaining: List<LatLng>,
-    val remainingColor: Color,
+    val current: List<LatLng>,
+    val currentColor: Color,
     val future: List<Pair<List<LatLng>, Color>>
 )
 
-private fun routeFeatures(session: OnboardSession, along: Double, accent: Color): RouteData {
+private fun routeFeatures(session: OnboardSession, accent: Color): RouteData {
     val legs = session.legs
     val paths = session.paths
-    val current = if (session.phase == OnboardPhase.ARRIVED) legs.size else session.legIndex
+    val currentIndex = if (session.phase == OnboardPhase.ARRIVED) legs.size else session.legIndex
     val past = mutableListOf<List<LatLng>>()
     val future = mutableListOf<Pair<List<LatLng>, Color>>()
-    var travelled = emptyList<LatLng>()
-    var remaining = emptyList<LatLng>()
-    var remainingColor = MapWalkBlue
+    var current = emptyList<LatLng>()
+    var currentColor = MapWalkBlue
     legs.forEachIndexed { index, leg ->
         val path = paths.getOrNull(index) ?: return@forEachIndexed
         if (path.coordinates.size < 2) return@forEachIndexed
         val color = if (leg.isTransit) getLegColor(leg, false, accent) else MapWalkBlue
         when {
-            index < current -> past.add(path.coordinates)
-            index == current -> {
-                val split = max(0.0, along)
-                travelled = if (split > 0) path.slice(0.0, split) else emptyList()
-                remaining = if (split > 0) path.slice(split, path.length) else path.coordinates
-                remainingColor = color
+            index < currentIndex -> past.add(path.coordinates)
+            index == currentIndex -> {
+                current = path.coordinates
+                currentColor = color
             }
             else -> future.add(path.coordinates to color.copy(alpha = 0.75f))
         }
     }
-    return RouteData(past, travelled, remaining, remainingColor, future)
+    return RouteData(past, current, currentColor, future)
 }
 
 private fun lineFeatures(lines: List<Pair<List<LatLng>, Color?>>): String = buildJsonObject {
@@ -521,13 +552,39 @@ private fun ApproachLayer(approach: Pair<List<LatLng>, Color>?) {
 
 @Composable
 @MaplibreComposable
-private fun RouteLayers(data: RouteData, currentIsTransit: Boolean) {
+private fun RouteLayers(data: RouteData, fraction: Double, currentIsTransit: Boolean) {
     SimpleLine("onboard-past", data.past.map { it to null }, Color.Gray.copy(alpha = 0.45f), 5.dp)
     SimpleLine("onboard-future-casing", data.future.map { it.first to null }, Color.White, 8.dp)
     SimpleLine("onboard-future", data.future.map { it.first to it.second }, null, 5.dp)
-    SimpleLine("onboard-travelled", listOf(data.travelled to null), Color.Gray.copy(alpha = 0.5f), 6.dp)
-    SimpleLine("onboard-casing", listOf(data.remaining to null), Color.White, if (currentIsTransit) 11.dp else 10.dp)
-    SimpleLine("onboard-remaining", listOf(data.remaining to null), data.remainingColor, if (currentIsTransit) 7.dp else 6.dp)
+
+    val json = remember(data.current) { lineFeatures(listOf(data.current to null)) }
+    val source = rememberGeoJsonSource(GeoJsonData.JsonString(json), LineMetricsOptions)
+    val split = fraction.coerceIn(0.0001, 0.9999)
+    val clear = Color.Transparent
+
+    SplitLine("onboard-travelled", source, split, Color.Gray.copy(alpha = 0.5f), clear, 6.dp)
+    SplitLine("onboard-casing", source, split, clear, Color.White, if (currentIsTransit) 11.dp else 10.dp)
+    SplitLine("onboard-remaining", source, split, clear, data.currentColor, if (currentIsTransit) 7.dp else 6.dp)
+}
+
+@Composable
+@MaplibreComposable
+private fun SplitLine(
+    id: String,
+    source: org.maplibre.compose.sources.GeoJsonSource,
+    split: Double,
+    before: Color,
+    after: Color,
+    width: Dp
+) {
+    LineLayer(
+        id = id,
+        source = source,
+        gradient = step(Feature.lineProgress(), const(before), split to const(after)),
+        width = const(width),
+        cap = const(LineCap.Round),
+        join = const(LineJoin.Round)
+    )
 }
 
 private class TurnArrow(val shaft: List<LatLng>, val head: List<LatLng>)
