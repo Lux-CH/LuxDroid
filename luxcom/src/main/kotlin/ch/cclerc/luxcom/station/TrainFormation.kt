@@ -7,8 +7,23 @@ data class TrainFormation(
     val train: String,
     val track: String? = null,
     val sectors: Sectors,
-    val coaches: List<Coach>
+    val coaches: List<Coach>,
+    val occupancy: Occupancy? = null
 ) {
+    @Serializable
+    data class Occupancy(
+        val first: Int? = null,
+        val second: Int? = null
+    ) {
+        val isKnown: Boolean get() = first != null || second != null
+
+        fun level(coach: Coach): Int? {
+            if (coach.isRestaurant || coach.isLocomotive) return null
+            if (coach.t == "12") return listOfNotNull(first, second).maxOrNull()
+            return if (coach.isFirstClass) first else second
+        }
+    }
+
     @Serializable
     data class Sectors(
         val first: List<String> = emptyList(),

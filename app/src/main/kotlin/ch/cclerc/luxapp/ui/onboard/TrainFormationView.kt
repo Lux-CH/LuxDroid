@@ -24,6 +24,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -94,6 +98,20 @@ private sealed interface RunContent {
     data class Services(val symbols: List<String>) : RunContent {
         override val key: String get() = "s" + symbols.joinToString(",")
     }
+
+    data class Occupancy(val level: Int) : RunContent {
+        override val key: String get() = "o$level"
+    }
+}
+
+enum class FormationPage { CLASSES, SERVICES, OCCUPANCY }
+
+object FormationOccupancy {
+    fun text(level: Int): String = when (level) {
+        1 -> "places libres"
+        2 -> "peu de places libres"
+        else -> "places debout uniquement"
+    }
 }
 
 private data class Span(val x: Float, val width: Float)
@@ -104,6 +122,7 @@ private class FormationLayout(formation: TrainFormation, platformSectors: List<S
     class RunLabel(val id: String, val span: Span, val content: RunContent)
 
     val coaches = formation.coaches
+    val occupancy = formation.occupancy
     val blocks: List<Block>
     val sectors: List<Sector>
     val total: Float
@@ -171,8 +190,8 @@ private class FormationLayout(formation: TrainFormation, platformSectors: List<S
         }
     }
 
-    fun labels(page: Int): List<RunLabel> {
-        val contents = coaches.map { content(it, page) }
+    fun labels(page: FormationPage): List<RunLabel> {
+        val contents = coaches.map { content(it, page, occupancy) }
         return runs(contents).mapNotNull { range ->
             val content = contents[range.first] ?: return@mapNotNull null
             RunLabel("${range.first}-${range.last}-${content.key}", span(range), content)
@@ -185,9 +204,10 @@ private class FormationLayout(formation: TrainFormation, platformSectors: List<S
     }
 
     companion object {
-        fun content(coach: TrainFormation.Coach, page: Int): RunContent? {
+        fun content(coach: TrainFormation.Coach, page: FormationPage, occupancy: TrainFormation.Occupancy?): RunContent? {
             if (coach.isLocomotive || coach.closed) return null
-            if (page == 1 && coach.services.isNotEmpty()) return RunContent.Services(coach.services)
+            if (page == FormationPage.SERVICES && coach.services.isNotEmpty()) return RunContent.Services(coach.services)
+            if (page == FormationPage.OCCUPANCY) occupancy?.level(coach)?.let { return RunContent.Occupancy(it) }
             if (coach.isRestaurant) return RunContent.Services(listOf("fork.knife"))
             return RunContent.Label(
                 when (coach.t) {
@@ -244,13 +264,18 @@ fun TrainFormationView(
 ) {
     val colors = LuxTheme.colors
     var page by remember { mutableIntStateOf(0) }
-    val hasServices = formation.coaches.any { it.services.isNotEmpty() }
+    val pages = buildList {
+        add(FormationPage.CLASSES)
+        if (formation.coaches.any { it.services.isNotEmpty() }) add(FormationPage.SERVICES)
+        if (formation.occupancy?.isKnown == true) add(FormationPage.OCCUPANCY)
+    }
 
     LaunchedEffect(formation) {
-        if (!hasServices) return@LaunchedEffect
+        val count = pages.size
+        if (count <= 1) return@LaunchedEffect
         while (true) {
             delay(4_000)
-            page = (page + 1) % 2
+            page = (page + 1) % count
         }
     }
 
@@ -294,7 +319,7 @@ fun TrainFormationView(
                         label = "formationPage"
                     ) { shownPage ->
                         Box(Modifier.width(layout.total.dp).fillMaxHeight()) {
-                            layout.labels(shownPage).forEach { label ->
+                            layout.labels(pages[shownPage % pages.size]).forEach { label ->
                                 Box(
                                     Modifier
                                         .offset(x = label.span.x.dp)
@@ -399,6 +424,14 @@ private fun RunLabelView(content: RunContent, width: Dp) {
             color = Color.White,
             maxLines = 1
         )
+        is RunContent.Occupancy -> when {
+            width.value >= 38f -> PeopleLevel(content.level, 11.sp, Color.White)
+            width.value >= 26f -> PeopleLevel(content.level, 8.sp, Color.White)
+            else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                SFSymbol(name = "person.fill", size = 9.sp, color = Color.White, weight = 800)
+                Text("${content.level}", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1)
+            }
+        }
         is RunContent.Services -> {
             val symbols = content.symbols
             val fitting = when {
@@ -451,5 +484,74 @@ private fun accessibilityText(formation: TrainFormation): String {
     if (sectors.restaurant.isNotEmpty()) parts.add("restaurant secteur ${TrainFormation.sectorText(sectors.restaurant)}")
     if (sectors.bike.isNotEmpty()) parts.add("vélos secteur ${TrainFormation.sectorText(sectors.bike)}")
     if (sectors.wheelchair.isNotEmpty()) parts.add("fauteuils roulants secteur ${TrainFormation.sectorText(sectors.wheelchair)}")
+    formation.occupancy?.let { occupancy ->
+        occupancy.first?.let { parts.add("1re classe ${FormationOccupancy.text(it)}") }
+        occupancy.second?.let { parts.add("2e classe ${FormationOccupancy.text(it)}") }
+    }
     return parts.joinToString(", ")
+}
+
+@Composable
+fun PeopleLevel(level: Int, size: TextUnit, color: Color, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (size.value < 10) 0.dp else 1.dp)) {
+        for (index in 1..3) {
+            SFSymbol(
+                name = "person.fill",
+                size = size,
+                color = color,
+                weight = 700,
+                modifier = Modifier.alpha(if (index <= level) 1f else 0.3f)
+            )
+        }
+    }
+}
+
+@Composable
+fun OccupancyForecastRow(occupancy: TrainFormation.Occupancy, modifier: Modifier = Modifier) {
+    val colors = LuxTheme.colors
+    val description = buildList {
+        add("Affluence prévue")
+        occupancy.first?.let { add("1re classe ${FormationOccupancy.text(it)}") }
+        occupancy.second?.let { add("2e classe ${FormationOccupancy.text(it)}") }
+    }.joinToString(", ")
+    Row(
+        modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = description },
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            SFSymbol(name = "person.2.fill", size = 12.sp, color = colors.secondaryLabel, weight = 600)
+            Text("Affluence prévue", style = LuxTheme.type.caption.copy(fontWeight = FontWeight.SemiBold), color = colors.secondaryLabel)
+        }
+        Spacer(Modifier.weight(1f).widthIn(min = 4.dp))
+        occupancy.first?.let { OccupancyEntry("1", it, FirstClass) }
+        occupancy.second?.let { OccupancyEntry("2", it, SecondClass) }
+    }
+}
+
+@Composable
+private fun OccupancyEntry(travelClass: String, level: Int, color: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(20.dp)
+                .background(color, RoundedCornerShape(5.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(travelClass, fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.White)
+        }
+        PeopleLevel(level, 11.sp, LuxTheme.colors.label)
+    }
+}
+
+@Composable
+fun FormationSummary(formation: TrainFormation, platformSectors: List<String>, modifier: Modifier = Modifier) {
+    val occupancy = formation.occupancy
+    if (formation.coaches.isNotEmpty()) {
+        TrainFormationView(formation, platformSectors, modifier)
+    } else if (occupancy != null && occupancy.isKnown) {
+        OccupancyForecastRow(occupancy, modifier)
+    }
 }
