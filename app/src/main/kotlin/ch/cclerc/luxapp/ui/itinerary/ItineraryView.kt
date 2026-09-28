@@ -1,5 +1,9 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import kotlinx.coroutines.Job
+import ch.cclerc.luxapp.domain.StopConnection
+import ch.cclerc.luxapp.domain.onboard.isTransit
+import ch.cclerc.luxapp.domain.ConnectionService
 import androidx.compose.ui.platform.LocalConfiguration
 import ch.cclerc.luxapp.ui.stop.rememberStopSheetHeightEstimator
 import androidx.activity.compose.BackHandler
@@ -265,6 +269,9 @@ private fun ItineraryScaffold(
 
     var stopDestination by remember { mutableStateOf<Place?>(null) }
     var shownStop by remember { mutableStateOf<Place?>(null) }
+    var shownConnections by remember { mutableStateOf<List<StopConnection>>(emptyList()) }
+    var connectionsJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(Unit) { ConnectionService.warmUp() }
     var stopSheetCompactHeight by remember { mutableStateOf(480.dp) }
     val estimateStopSheetHeight = rememberStopSheetHeightEstimator()
     val containerWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -274,9 +281,20 @@ private fun ItineraryScaffold(
         stopSheetState.detents = listOf(stopCompactDetent, SheetDetent.Large)
     }
 
-    fun openStopSheet(place: Place) {
-        HapticFeedback.softImpact()
-        stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp)
+    fun ridingLines(place: Place): Set<String> {
+        val ids = setOfNotNull(place.stopId, place.parentId)
+        val legs = viewModel.itinerary?.legs ?: return emptySet()
+        if (ids.isEmpty()) return emptySet()
+        return legs.filter { leg ->
+            leg.isTransit && (listOf(leg.from, leg.to) + leg.intermediateStops.orEmpty()).any { stop ->
+                stop.stopId in ids || stop.parentId in ids
+            }
+        }.mapNotNull { it.routeShortName }.toSet()
+    }
+
+    fun presentStopSheet(place: Place, connections: List<StopConnection>) {
+        stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp, connections.isNotEmpty())
+        shownConnections = connections
         shownStop = place
         scope.launch { stopSheetState.animateTo(stopCompactDetent) }
         if (stopDestination != null) {
@@ -290,7 +308,18 @@ private fun ItineraryScaffold(
         }
     }
 
+    fun openStopSheet(place: Place) {
+        HapticFeedback.softImpact()
+        val riding = ridingLines(place)
+        connectionsJob?.cancel()
+        connectionsJob = scope.launch {
+            val lines = ConnectionService.connections(place.parentId ?: place.stopId ?: "")
+            presentStopSheet(place, lines.filter { it.line !in riding })
+        }
+    }
+
     fun closeStopSheet(restoringDetails: Boolean) {
+        connectionsJob?.cancel()
         if (stopDestination == null) return
         stopDestination = null
         viewModel.selectedStop = null
@@ -501,6 +530,7 @@ private fun ItineraryScaffold(
                 shownStop?.let { place ->
                     ItineraryStopSheet(
                         place = place,
+                        connections = shownConnections,
                         onGo = { stop -> planTrip(stop) },
                         onOpenTrip = { tripId, options ->
                             closeStopSheet(restoringDetails = true)

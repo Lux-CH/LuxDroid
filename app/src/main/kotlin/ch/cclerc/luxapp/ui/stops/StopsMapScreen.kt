@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.stops
 
+import ch.cclerc.luxapp.domain.ConnectionService
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Animatable
@@ -311,6 +312,7 @@ fun StopsMapScreen(
     }
 
     LaunchedEffect(Unit) {
+        ConnectionService.warmUp()
         delay(4_000)
         showsHint = false
     }
