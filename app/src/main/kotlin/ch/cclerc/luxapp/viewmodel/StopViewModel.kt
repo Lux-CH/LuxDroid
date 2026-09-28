@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
+import ch.cclerc.luxapp.domain.DirectionPreferenceStore
 import ch.cclerc.luxapp.domain.GroupedStopTime
 import ch.cclerc.luxapp.domain.LineScoreManager
 import ch.cclerc.luxapp.domain.displayBufferTime
@@ -17,6 +18,7 @@ import ch.cclerc.luxcom.model.stop.StopTime
 import ch.cclerc.luxcom.model.stop.StopTimes
 import ch.cclerc.luxcom.relay.RelayClient
 import ch.cclerc.luxcom.relay.RelayLiveFeed
+import ch.cclerc.luxcom.station.StationLayout
 import ch.cclerc.luxcom.stop.filteredToStation
 import java.time.Instant
 import kotlin.math.PI
@@ -39,7 +41,8 @@ class StopViewModel(
     val stop: SearchResult,
     private val fromStops: Boolean,
     val maxGroupsToShow: Int,
-    initialTime: Instant? = null
+    initialTime: Instant? = null,
+    val track: String? = null
 ) {
     var stopTimes: StopTimes? by mutableStateOf(null)
         private set
@@ -76,6 +79,10 @@ class StopViewModel(
     private var hasWidenedDepartureWindow = false
 
     private val lineScoreManager = LineScoreManager.shared
+    private var needsStartPagePick = true
+    private var lastMonitoringStop: Instant? = null
+    private var dwellJob: Job? = null
+    private val directionPreferences = DirectionPreferenceStore.shared
 
     init {
         if (initialTime != null) {
@@ -86,7 +93,13 @@ class StopViewModel(
     }
 
     fun startMonitoring() {
+        val stoppedAt = lastMonitoringStop
+        if (stoppedAt != null && Instant.now().toEpochMilli() - stoppedAt.toEpochMilli() > START_PAGE_PICK_COOLDOWN_MILLIS) {
+            needsStartPagePick = true
+        }
+
         scope.launch {
+            if (needsStartPagePick && routeGroups.isNotEmpty()) pickStartPages()
             val relayEligible = !fromStops && !isCustomTimeSelected
             val relayCoversInitialLoad = if (relayEligible) RelayClient.shared.isConnected.value else false
             if (relayCoversInitialLoad) {
@@ -118,6 +131,8 @@ class StopViewModel(
         backgroundRefreshJob?.cancel()
         departureCheckJob = null
         backgroundRefreshJob = null
+        dwellJob?.cancel()
+        lastMonitoringStop = Instant.now()
         scope.coroutineContext.cancelChildren()
     }
 
@@ -170,8 +185,8 @@ class StopViewModel(
         scope.launch { startLiveFeed() }
     }
 
-    private fun filteredForStation(stopTimes: StopTimes): StopTimes =
-        stopTimes.filteredToStation(
+    private fun filteredForStation(stopTimes: StopTimes): StopTimes {
+        val station = stopTimes.filteredToStation(
             stopId = stop.id,
             name = stop.name,
             lat = stop.lat,
@@ -179,6 +194,14 @@ class StopViewModel(
             servesMainlineRail = stop.servesMainlineRail,
             groupedStopIds = stop.groupedStopIds
         )
+        val track = track ?: return station
+        val wanted = StationLayout.normalizedTrack(track)
+        return station.copy(
+            stopTimes = station.stopTimes.filter { stopTime ->
+                (stopTime.place.track ?: stopTime.place.scheduledTrack)?.let(StationLayout::normalizedTrack) == wanted
+            }
+        )
+    }
 
     private fun applyStopTimes(rawStopTimes: StopTimes) {
         val freshStopTimes = filteredForStation(rawStopTimes)
@@ -309,6 +332,8 @@ class StopViewModel(
                         groupsModified = true
                     } else {
                         groups.removeAt(groupIndex)
+                        val page = currentPages[routeName]
+                        if (page != null && page > groupIndex) currentPages[routeName] = page - 1
                         groupsModified = true
                         break
                     }
@@ -446,8 +471,10 @@ class StopViewModel(
                 )
 
             result[routeName] = groupsByHeadsign
-            newCurrentPages[routeName] = min(currentPages[routeName] ?: 0, max(0, groupsByHeadsign.size - 1))
+            newCurrentPages[routeName] = startPage(routeName, groupsByHeadsign)
         }
+
+        needsStartPagePick = false
 
         val sortedRouteNames = lineScoreManager.getSortedRouteNames(grouped.keys.toList())
 
@@ -457,12 +484,88 @@ class StopViewModel(
         currentPages.putAll(newCurrentPages)
     }
 
+    private fun startPage(routeName: String, groups: List<GroupedStopTime>): Int {
+        val previousGroups = routeGroups[routeName]
+        if (needsStartPagePick || previousGroups == null) return preferredStartPage(groups)
+
+        val previousPage = currentPages[routeName] ?: 0
+        if (previousPage in previousGroups.indices) {
+            val previousKey = StopGrouping.normalizedName(previousGroups[previousPage].headsign)
+            val index = groups.indexOfFirst { StopGrouping.normalizedName(it.headsign) == previousKey }
+            if (index >= 0) return index
+        }
+        return min(previousPage, max(0, groups.size - 1))
+    }
+
+    private fun pickStartPages() {
+        for (routeName in routeNames) {
+            routeGroups[routeName]?.let { currentPages[routeName] = preferredStartPage(it) }
+        }
+        needsStartPagePick = false
+    }
+
+    private fun preferredStartPage(groups: List<GroupedStopTime>): Int {
+        val referenceTime = getReferenceTime()
+        val viewedStopKey = StopGrouping.normalizedName(stop.name)
+        val candidates = groups.indices.filter { StopGrouping.normalizedName(groups[it].headsign) != viewedStopKey }
+        if (candidates.isEmpty()) return 0
+
+        fun nextDeparture(index: Int): Instant = groups[index].stopTimes.firstOrNull()?.let(::eventTime) ?: DISTANT_FUTURE
+
+        val favorite = candidates
+            .map { index ->
+                index to directionPreferences.score(
+                    stop.id,
+                    groups[index].routeShortName,
+                    StopGrouping.normalizedName(groups[index].headsign),
+                    referenceTime
+                )
+            }
+            .filter { it.second >= MINIMUM_FAVORITE_SCORE }
+            .maxByOrNull { it.second }
+
+        if (favorite != null &&
+            nextDeparture(favorite.first).toEpochMilli() - referenceTime.toEpochMilli() <= FAVORITE_HORIZON_MILLIS
+        ) {
+            return favorite.first
+        }
+        return candidates.minByOrNull { nextDeparture(it) } ?: 0
+    }
+
+    fun userChangedPage(page: Int, routeName: String) {
+        currentPages[routeName] = page
+        dwellJob?.cancel()
+        val groups = routeGroups[routeName] ?: return
+        if (page !in groups.indices) return
+        val headsignKey = StopGrouping.normalizedName(groups[page].headsign)
+        dwellJob = scope.launch {
+            delay(DWELL_MILLIS)
+            if (currentPages[routeName] != page) return@launch
+            recordDirection(routeName, headsignKey, DWELL_POINTS)
+        }
+    }
+
+    fun userSelectedGroup(group: GroupedStopTime) {
+        userSelectedLine(group.routeShortName)
+        recordDirection(group.routeShortName, StopGrouping.normalizedName(group.headsign), SELECTION_POINTS)
+    }
+
+    private fun recordDirection(route: String, headsignKey: String, points: Double) {
+        directionPreferences.record(stop.id, route, headsignKey, getReferenceTime(), points)
+    }
+
     fun userSelectedLine(routeShortName: String) {
         lineScoreManager.addScore(routeShortName)
     }
 
     private companion object {
         const val DUPLICATE_WINDOW_MILLIS: Long = 3 * 60 * 1000
+        const val START_PAGE_PICK_COOLDOWN_MILLIS: Long = 5 * 60 * 1000
+        const val DWELL_MILLIS: Long = 2_000
+        const val DWELL_POINTS = 0.3
+        const val SELECTION_POINTS = 1.0
+        const val MINIMUM_FAVORITE_SCORE = 1.0
+        const val FAVORITE_HORIZON_MILLIS: Long = 40 * 60 * 1000
         val DISTANT_FUTURE: Instant = Instant.ofEpochSecond(64_092_211_200L)
     }
 }

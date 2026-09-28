@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
@@ -42,7 +43,7 @@ fun RouteGroupView(
     entranceTracker: EntranceTracker,
     isLastRoute: Boolean,
     onOpenTrip: (String, List<TripOption>) -> Unit,
-    onSelectLine: (String) -> Unit,
+    onSelectGroup: (GroupedStopTime) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LuxTheme.colors
@@ -55,10 +56,15 @@ fun RouteGroupView(
         snapAnimationSpec = LuxSprings.springFor(0.5, 0.75)
     )
 
+    val latestPage by rememberUpdatedState(currentPage)
     LaunchedEffect(pagerState, groups.size) {
-        snapshotFlow { pagerState.currentPage }.collect { page ->
-            onPageChanged(routeName, page)
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != latestPage) onPageChanged(routeName, page)
         }
+    }
+    LaunchedEffect(currentPage, groups.size) {
+        val target = currentPage.coerceIn(0, max(0, groups.size - 1))
+        if (pagerState.settledPage != target && !pagerState.isScrollInProgress) pagerState.scrollToPage(target)
     }
 
     val dividerProgress by animateFloatAsState(
@@ -97,7 +103,7 @@ fun RouteGroupView(
                             animateIn = animateIn,
                             entranceTracker = entranceTracker,
                             onOpenTrip = onOpenTrip,
-                            onSelectLine = onSelectLine
+                            onSelectLine = { onSelectGroup(group) }
                         )
                     }
                 }

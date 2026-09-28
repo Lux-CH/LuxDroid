@@ -55,13 +55,13 @@ fun RouteGroupsView(
                             routeName = routeName,
                             groups = groups,
                             currentPage = viewModel.currentPages[routeName] ?: 0,
-                            onPageChanged = { name, page -> viewModel.currentPages[name] = page },
+                            onPageChanged = { name, page -> viewModel.userChangedPage(page, name) },
                             animateIn = animateIn,
                             playEntrance = playEntrance,
                             entranceTracker = entranceTracker,
                             isLastRoute = routeName == shownRoutes.lastOrNull(),
                             onOpenTrip = onOpenTrip,
-                            onSelectLine = { name -> viewModel.userSelectedLine(name) },
+                            onSelectGroup = { group -> viewModel.userSelectedGroup(group) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .then(

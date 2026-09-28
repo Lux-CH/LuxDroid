@@ -254,9 +254,14 @@ private fun RouteGroupView(
     )
 
     LaunchedEffect(pagerState, groups.size) {
-        androidx.compose.runtime.snapshotFlow { pagerState.currentPage }.collect { page ->
-            viewModel.currentPages[routeName] = page
+        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (page != viewModel.currentPages[routeName]) viewModel.userChangedPage(page, routeName)
         }
+    }
+    val selectedPage = viewModel.currentPages[routeName] ?: 0
+    LaunchedEffect(selectedPage, groups.size) {
+        val target = selectedPage.coerceIn(0, max(0, groups.size - 1))
+        if (pagerState.settledPage != target && !pagerState.isScrollInProgress) pagerState.scrollToPage(target)
     }
 
     Column(
@@ -303,7 +308,7 @@ private fun RouteGroupView(
                         IncomingBusView(
                             group = group,
                             onOpenTrip = onOpenTrip,
-                            onSelectLine = { name -> viewModel.userSelectedLine(name) },
+                            onSelectLine = { viewModel.userSelectedGroup(group) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
