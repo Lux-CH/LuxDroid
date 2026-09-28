@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Text
@@ -18,6 +19,8 @@ import ch.cclerc.luxcom.model.Place
 import java.time.Instant
 
 private const val TIME_UNTIL_HORIZON_SECONDS = 10800L
+
+val LocalCountdownColor = staticCompositionLocalOf<Color?> { null }
 
 @Composable
 fun ItineraryStopTimeView(
@@ -85,7 +88,7 @@ fun ItineraryStopTimeView(
                     style = LuxTheme.type.subheadline.copy(
                         fontWeight = if (stopStatus.isCurrentStop) FontWeight.SemiBold else FontWeight.Medium
                     ),
-                    color = if (stopStatus.isCurrentStop) accentColor else legColor
+                    color = if (stopStatus.isCurrentStop) accentColor else LocalCountdownColor.current ?: legColor
                 )
             }
         }

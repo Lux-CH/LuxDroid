@@ -1,7 +1,7 @@
 package ch.cclerc.luxapp.ui.onboard
 
+import ch.cclerc.luxapp.ui.itinerary.LocalCountdownColor
 import ch.cclerc.luxapp.ui.theme.legColor
-import ch.cclerc.luxapp.ui.itinerary.LocalTimelineLineColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -705,7 +705,7 @@ private fun NextTransitRow(session: OnboardSession, leg: Leg) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Ensuite", style = LuxTheme.type.footnote.copy(fontWeight = FontWeight.SemiBold), color = colors.secondaryLabel)
-        LinePill(leg.routeShortName ?: "", leg.agencyId, leg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp)
+        LinePill(leg.routeShortName ?: "", leg.agencyId, leg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp, usesOriginalColors = true)
         Column(Modifier.weight(1f)) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 val style = LuxTheme.type.subheadline.copy(fontWeight = FontWeight.SemiBold)
@@ -840,7 +840,7 @@ private fun ExpandedContent(
     val leg = session.currentLeg
     Column(modifier.padding(horizontal = 22.dp).padding(top = 16.dp)) {
         if ((session.phase == OnboardPhase.RIDING || session.phase == OnboardPhase.WAITING) && leg != null) {
-            CompositionLocalProvider(LocalTimelineLineColor provides legColor(leg)) {
+            CompositionLocalProvider(LocalCountdownColor provides legColor(leg, brightIt = true)) {
                 ItinerarySheetDetailStopsContentView(
                     stops = session.upcomingStops,
                     legColor = bright(leg, LuxTheme.accent),
@@ -898,7 +898,7 @@ private fun LegRow(leg: Leg) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (leg.isTransit) {
-            LinePill(leg.routeShortName ?: "", leg.agencyId, leg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp)
+            LinePill(leg.routeShortName ?: "", leg.agencyId, leg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp, usesOriginalColors = true)
             Text(
                 leg.headsign?.let { "Direction $it" } ?: "",
                 style = LuxTheme.type.subheadline,

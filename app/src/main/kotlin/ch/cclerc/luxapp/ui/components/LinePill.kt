@@ -150,7 +150,8 @@ fun LinePill(
     mode: TransportationMode,
     width: Dp = 30.dp,
     height: Dp = 20.dp,
-    fontSize: TextUnit = 11.sp
+    fontSize: TextUnit = 11.sp,
+    usesOriginalColors: Boolean = false
 ) {
     val accent = LuxTheme.accent
     val colors = LuxTheme.colors
@@ -158,7 +159,7 @@ fun LinePill(
 
     val highContrast = Settings.highContrastButAccurateLinePill
     val easyOnTheEyes = Settings.easyOnTheEyes
-    val appearance = linePillAppearance(line, agencyId, mode, accent, highContrast, colors.isDark, easyOnTheEyes)
+    val appearance = linePillAppearance(line, agencyId, mode, accent, highContrast, colors.isDark && !usesOriginalColors, easyOnTheEyes)
     val isMetro = appearance.isMetro
     val isMainlineRail = appearance.isMainlineRail
     val isSquared = appearance.isSquared

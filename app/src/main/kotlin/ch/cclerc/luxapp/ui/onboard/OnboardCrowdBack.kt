@@ -404,7 +404,7 @@ private fun ProposalRow(session: OnboardSession, proposal: ReplanProposal) {
     ) {
         val transit: Leg? = proposal.nextTransit
         if (transit != null) {
-            LinePill(transit.routeShortName ?: "", transit.agencyId, transit.mode, width = 42.dp, height = 26.dp, fontSize = 14.sp)
+            LinePill(transit.routeShortName ?: "", transit.agencyId, transit.mode, width = 42.dp, height = 26.dp, fontSize = 14.sp, usesOriginalColors = true)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
                     "${formatTime(transit.startTime)} · ${session.placeName(transit.from)}",

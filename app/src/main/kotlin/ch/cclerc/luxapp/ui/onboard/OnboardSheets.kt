@@ -262,7 +262,7 @@ fun OnboardStopPickerSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LinePill(tripLeg.routeShortName ?: "", tripLeg.agencyId, tripLeg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp)
+                LinePill(tripLeg.routeShortName ?: "", tripLeg.agencyId, tripLeg.mode, width = 38.dp, height = 24.dp, fontSize = 13.sp, usesOriginalColors = true)
                 Text(
                     "Depuis ${stops[board].name}",
                     style = LuxTheme.type.footnote,
