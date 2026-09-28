@@ -547,7 +547,7 @@ fun MainNavigationScreen(
                     .weight(1f)
                     .padding(top = cardTopPadding.coerceAtLeast(0.dp))
                     .let {
-                        if (viewMode == ViewMode.Search) it
+                        if (viewMode != ViewMode.Home) it
                         else it.iosShadow(Color.Black.copy(alpha = 0.05f), 8.dp, (-4).dp, LuxShapes.topCorners(LuxShapes.r38))
                     }
                     .clip(LuxShapes.topCorners(if (compactStops) 0.dp else LuxShapes.r38))
