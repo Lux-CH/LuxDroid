@@ -58,10 +58,20 @@ import ch.cclerc.luxapp.viewmodel.SearchField
 import ch.cclerc.luxapp.viewmodel.TripsSearchViewModel
 import kotlinx.coroutines.delay
 
-internal fun Modifier.bottomFadeMask(height: Dp): Modifier = this
+internal fun Modifier.bottomFadeMask(height: Dp, top: Dp = 0.dp): Modifier = this
     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
     .drawWithContent {
         drawContent()
+        if (top > 0.dp) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Black),
+                    startY = 0f,
+                    endY = top.toPx()
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
         drawRect(
             brush = Brush.verticalGradient(
                 colors = listOf(Color.Black, Color.Transparent),

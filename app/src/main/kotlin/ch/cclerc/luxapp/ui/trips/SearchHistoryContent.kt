@@ -78,13 +78,13 @@ fun SearchHistoryContent(
             onRequestClear = { showClearAlert = true },
             modifier = Modifier
                 .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 11.dp)
+                .padding(top = 18.dp)
         )
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .bottomFadeMask(28.dp)
+                .bottomFadeMask(28.dp, top = 14.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             HistoryList(
@@ -93,7 +93,9 @@ fun SearchHistoryContent(
                 shortcutSymbol = shortcutSymbol,
                 onSelect = { viewModel.selectLocation(it) },
                 onRemove = { viewModel.removeFromHistory(it) },
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 14.dp)
             )
             Spacer(Modifier.height(40.dp))
         }
