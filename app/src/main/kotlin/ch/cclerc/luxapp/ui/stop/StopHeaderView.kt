@@ -101,7 +101,7 @@ fun StopHeaderView(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     connections.forEach { connection ->
-                        LinePill(line = connection, agencyId = null, mode = TransportationMode.BUS)
+                        LinePill(line = connection.line, agencyId = connection.agency, mode = TransportationMode.BUS)
                     }
                 }
             }

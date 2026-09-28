@@ -87,8 +87,8 @@ fun StopRowView(
             }
             if (!isSearching) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    connections.take(5).forEach { routeName ->
-                        LinePill(line = routeName, agencyId = null, mode = TransportationMode.BUS)
+                    connections.take(5).forEach { connection ->
+                        LinePill(line = connection.line, agencyId = connection.agency, mode = TransportationMode.BUS)
                     }
                     if (connections.size > 5) {
                         MorePill()
