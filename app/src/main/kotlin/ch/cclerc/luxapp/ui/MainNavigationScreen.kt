@@ -1,5 +1,17 @@
 package ch.cclerc.luxapp.ui
 
+import ch.cclerc.luxapp.ui.stops.StopsMapScreen
+import ch.cclerc.luxapp.ui.navigation.LocalCoverController
+import ch.cclerc.luxapp.ui.navigation.LuxCoverRequest
+import ch.cclerc.luxapp.ui.theme.LuxMaterials
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.border
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.AnimatedVisibility
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -121,6 +133,7 @@ fun MainNavigationScreen(
     val isDark = LuxTheme.isDark
     val scope = rememberCoroutineScope()
     val sheets = LocalSheetController.current
+    val coverController = LocalCoverController.current
     val statusInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     var viewMode by remember { mutableStateOf(ViewMode.Home) }
@@ -224,10 +237,10 @@ fun MainNavigationScreen(
         }
     }
 
-    fun transitionToSearchModeWithShortcut(shortcut: UserShortcut) {
+    fun transitionToSearchMode(result: SearchResult) {
         if (isSearchTransitioning || viewMode == ViewMode.Search) return
         isSearchTransitioning = true
-        val result = shortcut.toSearchResult()
+        if (viewMode == ViewMode.Stops) stopsQuery = ""
         HapticFeedback.lightImpact()
         scope.launch {
             isAnimatingToSearch = true
@@ -243,6 +256,28 @@ fun MainNavigationScreen(
             isAnimatingToSearch = false
             isSearchTransitioning = false
         }
+    }
+
+    fun transitionToSearchModeWithShortcut(shortcut: UserShortcut) {
+        transitionToSearchMode(shortcut.toSearchResult())
+    }
+
+    fun openStopsMap() {
+        HapticFeedback.softImpact()
+        coverController.present(
+            LuxCoverRequest {
+                StopsMapScreen(
+                    onDismiss = { coverController.dismiss() },
+                    onGo = { destination ->
+                        coverController.dismiss()
+                        scope.launch {
+                            delay(350)
+                            transitionToSearchMode(destination)
+                        }
+                    }
+                )
+            }
+        )
     }
 
     fun exitSearchMode() {
@@ -457,18 +492,31 @@ fun MainNavigationScreen(
                                     }
                                     Spacer(Modifier.height(12.dp))
                                 }
-                                AnimatedSearchBar(
-                                    searchText = if (viewMode == ViewMode.Stops) stopsQuery else searchText,
-                                    onSearchTextChange = { if (viewMode == ViewMode.Stops) stopsQuery = it },
-                                    placeholderText = if (viewMode == ViewMode.Stops) "Rechercher un arrêt..." else "Où allez-vous ?",
-                                    onSearch = {},
-                                    onClear = { stopsQuery = "" },
-                                    isTextFieldDisabled = viewMode == ViewMode.Home,
-                                    onTapWhenDisabled = { transitionToSearchMode() },
+                                Row(
                                     modifier = Modifier
                                         .offset(y = animatedSearchOffset)
-                                        .padding(bottom = 15.dp)
-                                )
+                                        .padding(bottom = 15.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AnimatedSearchBar(
+                                        searchText = if (viewMode == ViewMode.Stops) stopsQuery else searchText,
+                                        onSearchTextChange = { if (viewMode == ViewMode.Stops) stopsQuery = it },
+                                        placeholderText = if (viewMode == ViewMode.Stops) "Rechercher un arrêt..." else "Où allez-vous ?",
+                                        onSearch = {},
+                                        onClear = { stopsQuery = "" },
+                                        isTextFieldDisabled = viewMode == ViewMode.Home,
+                                        onTapWhenDisabled = { transitionToSearchMode() },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    AnimatedVisibility(
+                                        visible = viewMode == ViewMode.Stops,
+                                        enter = fadeIn() + expandHorizontally(expandFrom = Alignment.Start),
+                                        exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.Start)
+                                    ) {
+                                        StopsMapButton { openStopsMap() }
+                                    }
+                                }
                             }
                         }
                     }
@@ -619,5 +667,22 @@ fun SettingsSheetPlaceholder() {
 fun ShortcutsSheetPlaceholder() {
     Box(Modifier.fillMaxSize().padding(top = 40.dp), contentAlignment = Alignment.TopCenter) {
         Text("Raccourcis", color = LuxTheme.colors.label, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun StopsMapButton(onClick: () -> Unit) {
+    val colors = LuxTheme.colors
+    Box(
+        Modifier
+            .size(60.dp)
+            .clip(CircleShape)
+            .background(LuxMaterials.capsuleFill(), CircleShape)
+            .border(0.5.dp, colors.hairline, CircleShape)
+            .scaleClickable(haptic = false) { onClick() }
+            .semantics { contentDescription = "Carte des arrêts" },
+        contentAlignment = Alignment.Center
+    ) {
+        SFSymbol(name = "map", size = 20.sp, color = colors.label.copy(alpha = 0.6f))
     }
 }

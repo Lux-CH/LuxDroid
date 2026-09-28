@@ -91,6 +91,19 @@ class StationOverlayContent private constructor(
     companion object {
         val Empty = StationOverlayContent(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
 
+        fun merged(contents: Collection<StationOverlayContent>): StationOverlayContent {
+            if (contents.isEmpty()) return Empty
+            if (contents.size == 1) return contents.first()
+            return StationOverlayContent(
+                areas = contents.flatMap { it.areas },
+                rails = contents.flatMap { it.rails },
+                access = contents.flatMap { it.access },
+                stairs = contents.flatMap { it.stairs },
+                lines = contents.flatMap { it.lines },
+                labels = contents.flatMap { it.labels }
+            )
+        }
+
         fun of(legs: List<Leg>, layouts: Map<Int, StationLayout>): StationOverlayContent {
             if (layouts.isEmpty()) return Empty
 
