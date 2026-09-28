@@ -15,8 +15,8 @@ android {
         applicationId = "ch.cclerc.luxapp"
         minSdk = 31
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0a"
+        versionCode = 11
+        versionName = "1.0c"
         ndk {
             abiFilters.add("arm64-v8a")
         }
