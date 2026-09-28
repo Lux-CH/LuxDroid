@@ -1,5 +1,12 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import ch.cclerc.luxapp.ui.components.IosActivityIndicator
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +88,9 @@ fun DisruptionsRow(
     val openDisruptions = LocalOpenDisruptions.current
     val shape = RoundedCornerShape(14.dp)
     val count = all.size
+    val scope = rememberCoroutineScope()
+    var isOpening by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { isOpening = false } }
 
     Row(
         modifier = modifier
@@ -88,8 +98,14 @@ fun DisruptionsRow(
             .clip(shape)
             .background(colors.label.copy(alpha = 0.05f), shape)
             .clickable(interactionSource = null, indication = PlainIndication) {
+                if (isOpening) return@clickable
                 HapticFeedback.lightImpact()
+                isOpening = true
                 if (action != null) action() else openDisruptions?.invoke(groups)
+                scope.launch {
+                    delay(2_000)
+                    isOpening = false
+                }
             }
             .padding(horizontal = 14.dp, vertical = 11.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -107,12 +123,16 @@ fun DisruptionsRow(
             color = colors.label
         )
         Spacer(Modifier.weight(1f))
-        SFSymbol(
-            name = "chevron.right",
-            size = 13.sp,
-            color = colors.tertiaryLabel,
-            weight = 600
-        )
+        if (isOpening) {
+            IosActivityIndicator(size = 16.dp)
+        } else {
+            SFSymbol(
+                name = "chevron.right",
+                size = 13.sp,
+                color = colors.tertiaryLabel,
+                weight = 600
+            )
+        }
     }
 }
 
