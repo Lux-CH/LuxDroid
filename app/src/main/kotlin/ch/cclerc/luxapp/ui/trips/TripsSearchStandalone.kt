@@ -72,6 +72,7 @@ fun TripsSearchStandalone(
     LaunchedEffect(viewModel) { viewModel.installPoiHooks() }
 
     LaunchedEffect(viewModel, initialSearchResult) {
+        viewModel.setupInitialCurrentPosition()
         val result = initialSearchResult ?: return@LaunchedEffect
         viewModel.handleInitialSearchResult(result, initialTargetField)
     }
