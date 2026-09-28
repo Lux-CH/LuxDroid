@@ -1,5 +1,12 @@
 package ch.cclerc.luxapp.ui.stops
 
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import ch.cclerc.luxapp.ui.map.rememberMarkerImageStore
+import ch.cclerc.luxapp.ui.map.MarkerLayer
+import ch.cclerc.luxapp.ui.map.MarkerImageHost
+import ch.cclerc.luxapp.ui.map.MarkerAnchor
 import ch.cclerc.luxapp.domain.ConnectionService
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.spring
@@ -268,15 +275,13 @@ fun StopsMapScreen(
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomSafe = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val initialLocation = remember { LocationService.location.value }
-    val location by LocationService.location.collectAsStateWithLifecycle()
-    val heading by LocationService.heading.collectAsStateWithLifecycle()
 
     val cameraState = rememberLuxCameraState(
         StopsMapMemory.savedCamera ?: initialLocation?.let {
             CameraPosition(target = Position(longitude = it.longitude, latitude = it.latitude), zoom = 15.0)
         } ?: CameraPosition(target = Position(longitude = 8.23, latitude = 46.80), zoom = 6.6)
     )
-    val projector = rememberMapProjector(cameraState)
+    val markerImages = rememberMarkerImageStore()
 
     var selection by remember { mutableStateOf<StopsMapSelection?>(null) }
     var presentedSelection by remember { mutableStateOf<StopsMapSelection?>(null) }
@@ -300,7 +305,7 @@ fun StopsMapScreen(
     var loadJob by remember { mutableStateOf<Job?>(null) }
     var pinJob by remember { mutableStateOf<Job?>(null) }
 
-    val sheetState = remember { DetentSheetState(listOf(SheetDetent.Medium, SheetDetent.Large)) }
+    val sheetState = remember { DetentSheetState(listOf(SheetDetent.Medium, SheetDetent.Large), dismissible = true) }
     val shortcuts by ShortcutManager.shared.shortcuts.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
@@ -461,6 +466,7 @@ fun StopsMapScreen(
                         layoutFlushJob = scope.launch {
                             delay(60)
                             layoutFlushJob = null
+                            snapshotFlow { cameraState.isCameraMoving }.first { !it }
                             stationContents = stationContents + pendingContents
                             pendingContents.clear()
                         }
@@ -477,6 +483,10 @@ fun StopsMapScreen(
         }
 
         fun apply(result: List<MapStation>) {
+            if (result.all { stations[it.id] != null }) {
+                loadLayouts()
+                return
+            }
             val merged = stations.toMutableMap()
             result.forEach { merged[it.id] = it }
             if (merged.size > MAX_STATIONS) {
@@ -520,6 +530,7 @@ fun StopsMapScreen(
                 if (result == null) return@launch
                 loadedBounds.add(rect)
                 if (loadedBounds.size > 40) loadedBounds.removeAt(0)
+                snapshotFlow { cameraState.isCameraMoving }.first { !it }
                 apply(result)
             }
         }
@@ -546,26 +557,29 @@ fun StopsMapScreen(
                 }
         }
 
-        LaunchedEffect(trackingMode, location, heading) {
+        LaunchedEffect(trackingMode) {
             if (trackingMode == MapTrackingMode.NONE) return@LaunchedEffect
-            val user = location ?: return@LaunchedEffect
-            val current = cameraState.position
-            val bearing = if (trackingMode == MapTrackingMode.FOLLOW_WITH_HEADING) (heading ?: current.bearing.toFloat()).toDouble() else 0.0
-            cameraState.animateTo(
-                current.copy(target = Position(longitude = user.longitude, latitude = user.latitude), bearing = bearing),
-                300.milliseconds
-            )
+            val mode = trackingMode
+            combine(LocationService.location, LocationService.heading) { user, heading -> user to heading }
+                .collectLatest { (user, heading) ->
+                    user ?: return@collectLatest
+                    val current = cameraState.position
+                    val bearing = if (mode == MapTrackingMode.FOLLOW_WITH_HEADING) (heading ?: current.bearing.toFloat()).toDouble() else 0.0
+                    cameraState.animateTo(
+                        current.copy(target = Position(longitude = user.longitude, latitude = user.latitude), bearing = bearing),
+                        300.milliseconds
+                    )
+                }
         }
 
         val stationContent = remember(stationContents) { StationOverlayContent.merged(stationContents.values) }
-        val quais = remember(stations, stationContents, detail, selection, visibleBounds) {
-            quaiPins(stations, stationContents, detail, selection, visibleBounds?.expanded(0.3))
+        val quais = remember(stations, stationContents, detail, selection) {
+            quaiPins(stations, stationContents, detail, selection, null)
         }
         val stationColors = StationColorPalette()
         val stationsJson = remember(stations, selection, stationColors) {
             stationsGeoJson(stations.values, selection?.takeIf { it.track == null }?.stop?.id, stationColors)
         }
-        val stationSource = rememberGeoJsonSource(GeoJsonData.JsonString(stationsJson))
 
         LuxMapView(
             styleJson = style.json,
@@ -585,6 +599,7 @@ fun StopsMapScreen(
                 )
             }
         ) {
+            val stationSource = rememberGeoJsonSource(GeoJsonData.JsonString(stationsJson))
             val onStationClick: (List<org.maplibre.spatialk.geojson.Feature<*, kotlinx.serialization.json.JsonObject?>>) -> ClickResult = { features ->
                 val id = features.firstNotNullOfOrNull { (it.properties?.get("id") as? JsonPrimitive)?.content }
                 val station = id?.let { stations[it] }
@@ -599,66 +614,77 @@ fun StopsMapScreen(
                 id = "stops-map-station-dot",
                 source = stationSource,
                 visible = !isZoomedOut,
-                radius = Feature.get("radius").asNumber().dp,
-                color = Feature.get("color").convertToColor(),
-                strokeColor = const(Color.White),
-                strokeWidth = const(2.dp),
-                sortKey = Feature.get("importance").convertToNumber(),
+                radius = StationLayerStyle.radius,
+                color = StationLayerStyle.color,
+                strokeColor = StationLayerStyle.strokeColor,
+                strokeWidth = StationLayerStyle.strokeWidth,
+                sortKey = StationLayerStyle.dotSortKey,
                 onClick = onStationClick
             )
+            val labelColor = colors.label
+            val haloColor = colors.systemBackground
+            val textColor = remember(labelColor) { const(labelColor) }
+            val textHalo = remember(haloColor) { const(haloColor) }
             SymbolLayer(
                 id = "stops-map-station-label",
                 source = stationSource,
                 visible = !isZoomedOut,
-                textField = format(span(Feature.get("name").convertToString())),
-                textFont = const(listOf(const("Noto Sans Bold"))),
-                textSize = const(11.sp),
-                textColor = const(colors.label),
-                textHaloColor = const(colors.systemBackground),
-                textHaloWidth = const(1.5.dp),
-                textAnchor = const(SymbolAnchor.Top),
-                textOffset = offset(0.em, 1.1.em),
-                textMaxWidth = const(8.em),
-                textOptional = const(true),
-                sortKey = Feature.get("rank").convertToNumber()
+                textField = StationLayerStyle.textField,
+                textFont = StationLayerStyle.textFont,
+                textSize = StationLayerStyle.textSize,
+                textColor = textColor,
+                textHaloColor = textHalo,
+                textHaloWidth = StationLayerStyle.textHaloWidth,
+                textAnchor = StationLayerStyle.textAnchor,
+                textOffset = StationLayerStyle.textOffset,
+                textMaxWidth = StationLayerStyle.textMaxWidth,
+                textOptional = StationLayerStyle.textOptional,
+                sortKey = StationLayerStyle.labelSortKey
             )
-        }
 
-        AnnotationOverlay(
-            items = quais,
-            projection = projector,
-            positionOf = { it.coordinate },
-            modifier = Modifier.matchParentSize(),
-            keyOf = { it.key }
-        ) { quai ->
-            val isSelected = selection?.let { it.stop.id == quai.stop.id && it.track == quai.track } == true
-            QuaiSign(quai.track, quai.isRail, isSelected, accent) {
-                select(quai.stop, quai.track)
+            MarkerLayer(
+                id = "stops-map-quais",
+                store = markerImages,
+                items = quais,
+                positionOf = { it.coordinate },
+                imageKeyOf = { quai ->
+                    val isSelected = selection?.let { it.stop.id == quai.stop.id && it.track == quai.track } == true
+                    "${quai.track}|${quai.isRail}|$isSelected"
+                },
+                sortKeyOf = { quai -> if (selection?.let { it.stop.id == quai.stop.id && it.track == quai.track } == true) 1.0 else 0.0 },
+                onClick = { quai -> select(quai.stop, quai.track) }
+            ) { quai ->
+                val isSelected = selection?.let { it.stop.id == quai.stop.id && it.track == quai.track } == true
+                QuaiSign(quai.track, quai.isRail, isSelected, accent)
             }
-        }
 
-        AnnotationOverlay(
-            items = shortcuts,
-            projection = projector,
-            positionOf = { LatLng(it.coordinates.latitude, it.coordinates.longitude) },
-            modifier = Modifier.matchParentSize(),
-            keyOf = { it.id },
-            anchorOf = { ShortcutBadgeAnchor }
-        ) { shortcut ->
-            ShortcutBadge(shortcut, accent) { openShortcut(shortcut) }
-        }
+            MarkerLayer(
+                id = "stops-map-shortcuts",
+                store = markerImages,
+                items = shortcuts,
+                positionOf = { LatLng(it.coordinates.latitude, it.coordinates.longitude) },
+                imageKeyOf = { "${it.symbol}|${it.name}" },
+                anchor = MarkerAnchor.Top,
+                offsetY = -ShortcutBadgeSize / 2,
+                onClick = { shortcut -> openShortcut(shortcut) }
+            ) { shortcut ->
+                ShortcutBadge(shortcut, accent)
+            }
 
-        pin?.takeIf { it.shortcut == null }?.let { dropped ->
-            AnnotationOverlayItem(
-                latitude = dropped.coordinate.latitude,
-                longitude = dropped.coordinate.longitude,
-                projection = projector,
-                modifier = Modifier.matchParentSize(),
-                anchor = AnnotationBottomAnchor
+            val dropped = pin?.takeIf { it.shortcut == null }
+            MarkerLayer(
+                id = "stops-map-pin",
+                store = markerImages,
+                items = listOfNotNull(dropped),
+                positionOf = { it.coordinate },
+                imageKeyOf = { it.name ?: "" },
+                anchor = MarkerAnchor.Bottom
             ) {
-                DroppedPinMarker(dropped.name)
+                DroppedPinMarker(it.name)
             }
         }
+
+        MarkerImageHost(markerImages)
 
         Box(
             Modifier
@@ -745,7 +771,7 @@ fun StopsMapScreen(
             enter = slideInVertically(tween(300, easing = EaseOut)) { it },
             exit = slideOutVertically(tween(300, easing = EaseOut)) { it }
         ) {
-            DetentSheet(state = sheetState, cornerRadius = 36.dp) {
+            DetentSheet(state = sheetState, cornerRadius = 36.dp, onDismiss = { deselect() }) {
                 presentedSelection?.let { shown ->
                     StopDepartureSheet(
                         stop = shown.stop,
@@ -763,6 +789,23 @@ fun StopsMapScreen(
             }
         }
     }
+}
+
+private object StationLayerStyle {
+    val radius = Feature.get("radius").asNumber().dp
+    val color = Feature.get("color").convertToColor()
+    val strokeColor = const(Color.White)
+    val strokeWidth = const(2.dp)
+    val dotSortKey = Feature.get("importance").convertToNumber()
+    val textField = format(span(Feature.get("name").convertToString()))
+    val textFont = const(listOf(const("Noto Sans Bold")))
+    val textSize = const(11.sp)
+    val textHaloWidth = const(1.5.dp)
+    val textAnchor = const(SymbolAnchor.Top)
+    val textOffset = offset(0.em, 1.1.em)
+    val textMaxWidth = const(8.em)
+    val textOptional = const(true)
+    val labelSortKey = Feature.get("rank").convertToNumber()
 }
 
 private data class StationColorPalette(
@@ -869,15 +912,13 @@ private fun quaiPins(
 }
 
 @Composable
-private fun QuaiSign(text: String, isRail: Boolean, isSelected: Boolean, accent: Color, onClick: () -> Unit) {
+private fun QuaiSign(text: String, isRail: Boolean, isSelected: Boolean, accent: Color) {
     val inner = if (isSelected) 5.dp else 3.dp
     val outer = if (isSelected) 7.dp else 4.dp
     val size = if (isSelected) 24.dp else 17.dp
     Box(
         Modifier
-            .popIn()
             .padding(8.dp)
-            .clickable(interactionSource = null, indication = null) { onClick() }
             .iosShadow(Color.Black.copy(alpha = 0.25f), if (isSelected) 3.dp else 1.5.dp, shape = RoundedCornerShape(outer))
             .background(if (isSelected) accent else Color.White, RoundedCornerShape(outer))
             .padding(if (isSelected) 2.dp else 1.dp)
@@ -901,31 +942,12 @@ private fun QuaiSign(text: String, isRail: Boolean, isSelected: Boolean, accent:
     }
 }
 
-@Composable
-private fun Modifier.popIn(): Modifier {
-    val progress = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        progress.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 250f))
-    }
-    return graphicsLayer {
-        val value = progress.value
-        alpha = value.coerceIn(0f, 1f)
-        scaleX = 0.5f + 0.5f * value
-        scaleY = 0.5f + 0.5f * value
-    }
-}
-
 private val ShortcutBadgeSize = 34.dp
-private val ShortcutBadgeAnchor = Offset(0.5f, 0f)
 
 @Composable
-private fun ShortcutBadge(shortcut: UserShortcut, accent: Color, onClick: () -> Unit) {
+private fun ShortcutBadge(shortcut: UserShortcut, accent: Color) {
     val colors = LuxTheme.colors
     Column(
-        Modifier
-            .offset(y = -ShortcutBadgeSize / 2)
-            .popIn()
-            .clickable(interactionSource = null, indication = null) { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {

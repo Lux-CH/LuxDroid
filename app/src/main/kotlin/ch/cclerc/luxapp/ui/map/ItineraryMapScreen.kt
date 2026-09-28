@@ -1,5 +1,7 @@
 package ch.cclerc.luxapp.ui.map
 
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
@@ -49,10 +51,8 @@ fun ItineraryMapScreen(
 ) {
     val style = rememberLuxMapStyle()
     val cameraState = rememberLuxCameraState()
-    val projector = rememberMapProjector(cameraState)
+    val markerImages = rememberMarkerImageStore()
 
-    val location by LocationService.location.collectAsStateWithLifecycle()
-    val heading by LocationService.heading.collectAsStateWithLifecycle()
 
     var didFitBounds by remember { mutableStateOf(false) }
 
@@ -110,26 +110,29 @@ fun ItineraryMapScreen(
             didFitBounds = true
         }
 
-        LaunchedEffect(viewModel.trackingMode, location, heading) {
+        LaunchedEffect(viewModel.trackingMode) {
             val mode = viewModel.trackingMode
             if (mode == MapTrackingMode.NONE) return@LaunchedEffect
-            val userLocation = location ?: return@LaunchedEffect
-            val current = cameraState.position
-            val bearing = if (mode == MapTrackingMode.FOLLOW_WITH_HEADING) {
-                (heading ?: current.bearing.toFloat()).toDouble()
-            } else {
-                0.0
-            }
-            cameraState.animateTo(
-                current.copy(
-                    target = Position(
-                        longitude = userLocation.longitude,
-                        latitude = userLocation.latitude
-                    ),
-                    bearing = bearing
-                ),
-                TrackingFollowDuration
-            )
+            combine(LocationService.location, LocationService.heading) { user, heading -> user to heading }
+                .collectLatest { (userLocation, heading) ->
+                    userLocation ?: return@collectLatest
+                    val current = cameraState.position
+                    val bearing = if (mode == MapTrackingMode.FOLLOW_WITH_HEADING) {
+                        (heading ?: current.bearing.toFloat()).toDouble()
+                    } else {
+                        0.0
+                    }
+                    cameraState.animateTo(
+                        current.copy(
+                            target = Position(
+                                longitude = userLocation.longitude,
+                                latitude = userLocation.latitude
+                            ),
+                            bearing = bearing
+                        ),
+                        TrackingFollowDuration
+                    )
+                }
         }
 
         val mapWidth = maxWidth
@@ -145,6 +148,8 @@ fun ItineraryMapScreen(
             )
             viewModel.disableTrackingIfNeeded()
         }
+
+        MarkerImageHost(markerImages)
 
         LuxMapView(
             styleJson = style.json,
@@ -176,6 +181,11 @@ fun ItineraryMapScreen(
                 )
             }
         ) {
+            StationSignLayers(
+                content = viewModel.stationOverlay,
+                detail = viewModel.stationDetail,
+                store = markerImages
+            )
             StopDotLayers(
                 stops = stops,
                 showingIntermediateStops = viewModel.showingIntermediateStops,
@@ -185,13 +195,6 @@ fun ItineraryMapScreen(
             WalkingDotLayer(walking = walking)
             VehicleMarkerLayers(vehicles = vehicles)
         }
-
-        StationSignOverlay(
-            content = viewModel.stationOverlay,
-            detail = viewModel.stationDetail,
-            projection = projector,
-            modifier = Modifier.matchParentSize()
-        )
     }
 }
 

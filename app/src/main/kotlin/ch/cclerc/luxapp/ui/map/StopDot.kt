@@ -165,6 +165,32 @@ fun StopDotLayers(
         onClick = onFeaturesClick
     )
 
+    SelectedStopLayers(stops, selectedPlace)
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-terminal",
+        source = terminalSource,
+        dotSize = StopDotTerminalSize
+    )
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-default",
+        source = defaultSource,
+        dotSize = StopDotDefaultSize,
+        visible = showingIntermediateStops
+    )
+
+    StopLabelLayer(
+        id = "$LUX_STOP_LABEL_LAYER_ID-intermediate",
+        source = intermediateSource,
+        dotSize = StopDotIntermediateSize,
+        visible = showingIntermediateStops
+    )
+}
+
+@Composable
+@MaplibreComposable
+private fun SelectedStopLayers(stops: List<StopAnnotation>, selectedPlace: Place?) {
     val selected = remember(stops, selectedPlace) {
         selectedPlace?.let { place ->
             stops.filter { it.place.lat == place.lat && it.place.lon == place.lon && it.place.name == place.name }.take(1)
@@ -190,26 +216,6 @@ fun StopDotLayers(
         color = Feature.get("color").convertToColor(),
         strokeColor = const(Color.White),
         strokeWidth = const(StopDotTerminalStroke)
-    )
-
-    StopLabelLayer(
-        id = "$LUX_STOP_LABEL_LAYER_ID-terminal",
-        source = terminalSource,
-        dotSize = StopDotTerminalSize
-    )
-
-    StopLabelLayer(
-        id = "$LUX_STOP_LABEL_LAYER_ID-default",
-        source = defaultSource,
-        dotSize = StopDotDefaultSize,
-        visible = showingIntermediateStops
-    )
-
-    StopLabelLayer(
-        id = "$LUX_STOP_LABEL_LAYER_ID-intermediate",
-        source = intermediateSource,
-        dotSize = StopDotIntermediateSize,
-        visible = showingIntermediateStops
     )
 }
 

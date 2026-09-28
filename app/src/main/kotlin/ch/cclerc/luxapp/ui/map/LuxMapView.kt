@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.map
 
+import org.maplibre.compose.map.RenderOptions
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +9,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -89,9 +91,12 @@ fun LuxMapView(
     content: @Composable @MaplibreComposable () -> Unit = {}
 ) {
     val baseStyle = remember(styleJson) { BaseStyle.Json(styleJson) }
+    val currentMapClick by rememberUpdatedState(onMapClick)
+    val currentMapLongClick by rememberUpdatedState(onMapLongClick)
     val cameraPadding = remember(contentPaddingBottom) { PaddingValues(bottom = contentPaddingBottom) }
     val options = remember {
         MapOptions(
+            renderOptions = RenderOptions(renderMode = RenderOptions.RenderMode.TextureView),
             gestureOptions = GestureOptions.Standard,
             ornamentOptions = OrnamentOptions.AllDisabled
         )
@@ -122,11 +127,11 @@ fun LuxMapView(
         cameraState = cameraState,
         options = options,
         onMapClick = { position, _ ->
-            onMapClick(LatLng(position.latitude, position.longitude))
+            currentMapClick(LatLng(position.latitude, position.longitude))
             ClickResult.Pass
         },
         onMapLongClick = { position, _ ->
-            val handler = onMapLongClick
+            val handler = currentMapLongClick
             if (handler != null) {
                 handler(LatLng(position.latitude, position.longitude))
                 ClickResult.Consume
@@ -136,10 +141,10 @@ fun LuxMapView(
         }
     ) {
         RouteLineOverlays(overlays = routeOverlays, anchorLayerId = routeAnchorLayerId, underlay = underlay)
+        content()
         if (showUserLocation) {
             UserLocationPuck(cameraState = cameraState)
         }
-        content()
     }
 }
 
