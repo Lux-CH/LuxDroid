@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -164,20 +165,22 @@ fun MultipleItineraryDetailView(
                             )
                         }
 
-                        ItinerarySheetDetailStopsContentView(
-                            stops = calculateUpcomingStopsForMultiLeg(leg),
-                            legColor = color,
-                            fromStop = leg.from,
-                            toStop = leg.to,
-                            duration = leg.duration,
-                            isMultipleLeg = true,
-                            isRealTime = leg.realTime,
-                            isCancelled = leg.cancelled,
-                            onSelectStop = { viewModel.selectedStop = it },
-                            modifier = Modifier
-                                .padding(horizontal = 20.dp)
-                                .padding(top = 16.dp, bottom = 10.dp)
-                        )
+                        CompositionLocalProvider(LocalTimelineLineColor provides legColor(leg)) {
+                            ItinerarySheetDetailStopsContentView(
+                                stops = calculateUpcomingStopsForMultiLeg(leg),
+                                legColor = color,
+                                fromStop = leg.from,
+                                toStop = leg.to,
+                                duration = leg.duration,
+                                isMultipleLeg = true,
+                                isRealTime = leg.realTime,
+                                isCancelled = leg.cancelled,
+                                onSelectStop = { viewModel.selectedStop = it },
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp)
+                                    .padding(top = 16.dp, bottom = 10.dp)
+                            )
+                        }
                     } else {
                         val tightLegs = tightConnectionLegs(leg, legIndex)
 

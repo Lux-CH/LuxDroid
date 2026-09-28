@@ -133,7 +133,7 @@ fun IntermediateStopsButton(
                 Modifier
                     .weight(1f)
                     .width(TimelineRailWidth)
-                    .background(legColor)
+                    .background(timelineFillColor(legColor))
             )
         }
 

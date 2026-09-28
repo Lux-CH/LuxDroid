@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.components.settings
 
+import ch.cclerc.luxapp.ui.theme.readableLineColor
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -68,24 +69,6 @@ private fun applyDisplayMode(mode: Int) {
             Settings.easyOnTheEyes = false
         }
     }
-}
-
-private fun isDarkColor(color: Color): Boolean {
-    val luminance = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
-    return luminance < 0.4f
-}
-
-private fun lightenColor(color: Color, factor: Float = 0.25f): Color {
-    val hsv = FloatArray(3)
-    android.graphics.Color.RGBToHSV(
-        (color.red * 255f).roundToInt(),
-        (color.green * 255f).roundToInt(),
-        (color.blue * 255f).roundToInt(),
-        hsv
-    )
-    val value = min(1f, hsv[2] + factor)
-    val saturation = max(0.3f, hsv[1] * 0.8f)
-    return Color.hsv(hsv[0], saturation, value)
 }
 
 @Composable
@@ -225,7 +208,7 @@ private fun SamplePill(
     val accent = LuxTheme.accent
     val density = LocalDensity.current
     val base = LineColors.color(line)?.let { Color(it) } ?: accent
-    val lineColor = if (isDarkColor(base) && !isRealistic) lightenColor(base) else base
+    val lineColor = if (isRealistic) base else readableLineColor(base, colors.isDark, if (isEasyOnTheEyes) 0.0 else 0.25)
     val fill = when {
         isEasyOnTheEyes -> Color.Transparent
         isRealistic -> lineColor

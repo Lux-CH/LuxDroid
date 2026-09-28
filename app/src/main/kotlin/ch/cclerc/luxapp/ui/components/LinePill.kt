@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.components
 
+import ch.cclerc.luxapp.ui.theme.readableLineColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -101,7 +102,9 @@ fun linePillAppearance(
     agencyId: String?,
     mode: TransportationMode,
     accent: Color,
-    highContrast: Boolean = Settings.highContrastButAccurateLinePill
+    highContrast: Boolean = Settings.highContrastButAccurateLinePill,
+    isDark: Boolean = false,
+    easyOnTheEyes: Boolean = Settings.easyOnTheEyes
 ): LinePillAppearance {
     val isTrainDetected = listOf("RL", "IR", "RE", "IC", "EC", "EXT", "ICE", "TGV", "RJ", "SN", "R")
         .any { line.startsWith(it) }
@@ -125,7 +128,7 @@ fun linePillAppearance(
     val resolved = LineColors.resolve(line, agencyId, isSquared)
     val baseLineColor = if (resolved.isBranded || resolved.color != 0L) Color(resolved.color) else accent
     val lineColor =
-        if (isDarkColor(baseLineColor) && !highContrast) lightenColor(baseLineColor) else baseLineColor
+        if (highContrast) baseLineColor else readableLineColor(baseLineColor, isDark, if (easyOnTheEyes) 0.0 else 0.25)
     val textColorOnLineColor = if (isMainlineRail || isMetro) Color.White else Color(resolved.textColor)
 
     return LinePillAppearance(
@@ -155,7 +158,7 @@ fun LinePill(
 
     val highContrast = Settings.highContrastButAccurateLinePill
     val easyOnTheEyes = Settings.easyOnTheEyes
-    val appearance = linePillAppearance(line, agencyId, mode, accent, highContrast)
+    val appearance = linePillAppearance(line, agencyId, mode, accent, highContrast, colors.isDark, easyOnTheEyes)
     val isMetro = appearance.isMetro
     val isMainlineRail = appearance.isMainlineRail
     val isSquared = appearance.isSquared
@@ -233,7 +236,7 @@ fun SamplePill(styleOverride: LinePillStyle, line: String = "18") {
     val colors = LuxTheme.colors
     val baseLineColor = LineColors.color(line)?.let { Color(it) } ?: accent
     val lineColor =
-        if (isDarkColor(baseLineColor) && !isRealistic) lightenColor(baseLineColor) else baseLineColor
+        if (isRealistic) baseLineColor else readableLineColor(baseLineColor, colors.isDark, if (isEasyOnTheEyes) 0.0 else 0.25)
 
     val fillColor = when {
         isEasyOnTheEyes -> Color.Transparent

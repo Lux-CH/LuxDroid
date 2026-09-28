@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -110,20 +111,22 @@ fun IndividualItineraryDetailView(
                 )
             }
 
-            ItinerarySheetDetailStopsContentView(
-                stops = upcomingStops,
-                legColor = color,
-                fromStop = mainLeg.from,
-                toStop = mainLeg.to,
-                duration = mainLeg.duration,
-                isMultipleLeg = isMultipleLeg,
-                isRealTime = mainLeg.realTime,
-                isCancelled = mainLeg.cancelled,
-                onSelectStop = { viewModel.selectedStop = it },
-                modifier = Modifier
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 16.dp)
-            )
+            CompositionLocalProvider(LocalTimelineLineColor provides legColor(mainLeg)) {
+                ItinerarySheetDetailStopsContentView(
+                    stops = upcomingStops,
+                    legColor = color,
+                    fromStop = mainLeg.from,
+                    toStop = mainLeg.to,
+                    duration = mainLeg.duration,
+                    isMultipleLeg = isMultipleLeg,
+                    isRealTime = mainLeg.realTime,
+                    isCancelled = mainLeg.cancelled,
+                    onSelectStop = { viewModel.selectedStop = it },
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 16.dp)
+                )
+            }
 
             HorizontalDivider(
                 modifier = Modifier

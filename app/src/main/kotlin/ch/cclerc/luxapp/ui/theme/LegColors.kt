@@ -19,7 +19,7 @@ fun defaultLegAccent(): Color = AccentColorManager.current().resolved(false)
 @Composable
 @ReadOnlyComposable
 fun legColor(leg: Leg, brightIt: Boolean = false): Color =
-    getLegColor(leg, brightIt, LuxTheme.accent)
+    getLegColor(leg, brightIt, LuxTheme.accent, LuxTheme.colors.isDark)
 
 fun resolvedLineColor(leg: Leg): LineColors.ResolvedLineColor? {
     val routeName = leg.routeShortName ?: return null
@@ -35,7 +35,8 @@ fun resolvedLineColor(leg: Leg): LineColors.ResolvedLineColor? {
 fun getLegColor(
     leg: Leg,
     brightIt: Boolean = false,
-    accent: Color = defaultLegAccent()
+    accent: Color = defaultLegAccent(),
+    isDark: Boolean = false
 ): Color {
     when (leg.mode) {
         TransportationMode.WALK -> return legWalkColor
@@ -57,7 +58,7 @@ fun getLegColor(
         if (leg.mode.usesSquaredPill) squaredPillFallbackColor else accent
     }
 
-    return if (brightIt && isLegColorDark(baseColor)) lightenLegColor(baseColor) else baseColor
+    return if (brightIt) readableLineColor(baseColor, isDark) else baseColor
 }
 
 fun isLegColorDark(color: Color): Boolean {

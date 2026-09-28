@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,12 @@ internal fun timelineSurfaceColor(): Color {
     return if (colors.isDark) colors.systemBackgroundElevated else Color.White
 }
 
+val LocalTimelineLineColor = staticCompositionLocalOf<Color?> { null }
+
+@Composable
+fun timelineFillColor(legColor: Color): Color =
+    if (LuxTheme.colors.isDark) LocalTimelineLineColor.current ?: legColor else legColor
+
 @Composable
 fun TimelineIndicatorView(
     legColor: Color,
@@ -38,7 +45,8 @@ fun TimelineIndicatorView(
 ) {
     val surface = timelineSurfaceColor()
     val isSpecialStop = isDepartureStop || isArrivalStop
-    val lineColor = if (isCurrentStop) accentColor else legColor
+    val fillColor = timelineFillColor(legColor)
+    val lineColor = if (isCurrentStop) accentColor else fillColor
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Column(
@@ -66,13 +74,13 @@ fun TimelineIndicatorView(
                     Modifier
                         .size(28.dp)
                         .background(surface, CircleShape)
-                        .border(1.5.dp, legColor, CircleShape),
+                        .border(1.5.dp, fillColor, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     SFSymbol(
                         name = if (isDepartureStop) "arrow.down.circle.fill" else "flag.circle.fill",
                         size = 18.sp,
-                        color = legColor,
+                        color = fillColor,
                         weight = 500
                     )
                 }
@@ -81,7 +89,7 @@ fun TimelineIndicatorView(
                 Box(
                     Modifier
                         .size(18.dp)
-                        .background(legColor, CircleShape)
+                        .background(fillColor, CircleShape)
                         .border(2.dp, accentColor, CircleShape)
                 )
             }
@@ -89,7 +97,7 @@ fun TimelineIndicatorView(
                 Box(
                     Modifier
                         .size(16.dp)
-                        .background(legColor, CircleShape)
+                        .background(fillColor, CircleShape)
                         .border(2.dp, surface, CircleShape)
                 )
             }

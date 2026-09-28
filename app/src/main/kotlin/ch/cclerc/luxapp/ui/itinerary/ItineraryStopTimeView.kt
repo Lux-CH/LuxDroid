@@ -83,7 +83,7 @@ fun ItineraryStopTimeView(
                 Text(
                     text = stopStatus.timeUntil,
                     style = LuxTheme.type.subheadline.copy(
-                        fontWeight = if (stopStatus.isCurrentStop) FontWeight.SemiBold else FontWeight.Normal
+                        fontWeight = if (stopStatus.isCurrentStop) FontWeight.SemiBold else FontWeight.Medium
                     ),
                     color = if (stopStatus.isCurrentStop) accentColor else legColor
                 )
