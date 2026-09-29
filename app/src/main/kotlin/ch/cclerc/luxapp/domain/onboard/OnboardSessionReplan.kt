@@ -116,6 +116,8 @@ fun OnboardSession.acceptReplan() {
     replan = null
 
     val keep = proposal.replaceFrom
+    walkBackDestination = null
+    walkBackJob?.cancel()
     legs = legs.subList(0, keep) + proposal.legs
     val newPaths = paths.subList(0, keep).toMutableList()
     val newAlongs = stopAlongs.subList(0, keep).toMutableList()

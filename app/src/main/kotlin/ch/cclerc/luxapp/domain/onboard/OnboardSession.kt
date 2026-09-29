@@ -82,6 +82,8 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     internal var legKeyFrames: Pair<String, List<VehicleVisualisation.KeyFrame>>? = null
     internal var scheduleKeyFrames: Pair<String, List<VehicleVisualisation.KeyFrame>>? = null
     internal var scheduleOffset: Pair<Double, Instant>? = null
+    internal var walkBackDestination: Place? = null
+    internal var walkBackJob: Job? = null
     internal var knownDisruptions: List<Disruption>? = null
     internal var announcedDisruptionIds: Set<String>? = null
     var nextManeuver: WalkManeuver? by mutableStateOf(null)
@@ -306,6 +308,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         crowdAckJob?.cancel()
         alertDismissJob?.cancel()
         rerouteJob?.cancel()
+        walkBackJob?.cancel()
         liveFeeds.values.forEach { it.stop() }
         liveFeeds.clear()
         vehicleJobs.values.forEach { it.cancel() }

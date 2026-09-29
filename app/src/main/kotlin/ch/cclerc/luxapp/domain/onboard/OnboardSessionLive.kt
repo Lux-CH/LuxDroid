@@ -1,5 +1,8 @@
 package ch.cclerc.luxapp.domain.onboard
 
+import ch.cclerc.luxcom.api.getRoute
+import ch.cclerc.luxcom.model.trip.LegGeometry
+import ch.cclerc.luxcom.model.TransportationMode
 import ch.cclerc.luxapp.core.HapticFeedback
 import ch.cclerc.luxapp.domain.map.LatLng
 import ch.cclerc.luxapp.domain.map.VehicleVisualisation
@@ -321,6 +324,8 @@ private fun OnboardSession.resumeRide(watch: OnboardSession.AlightWatch, pastAli
     val alightIndex = position(watch.leg.to, boardIndex) ?: return
     if (alightIndex + 1 >= stops.size) return
     val extended = LegLiveMerger.slice(tripLeg, boardIndex, alightIndex + 1) ?: return
+    val walkBackTarget = walkBackDestination?.takeIf { index == legs.lastIndex - 1 }
+        ?: watch.leg.to.takeIf { index == legs.lastIndex && it.vertexType == Place.VertexType.TRANSIT }
 
     arrivalJob?.cancel()
     legs = legs.toMutableList().also { it[index] = extended }
@@ -328,6 +333,7 @@ private fun OnboardSession.resumeRide(watch: OnboardSession.AlightWatch, pastAli
     paths = paths.toMutableList().also { it[index] = path }
     stopAlongs = stopAlongs.toMutableList().also { it[index] = alongs }
     announcedStopAlerts = announcedStopAlerts.filterNot { it.startsWith("$index-") }.toMutableSet()
+    if (walkBackTarget != null) setWalkBack(walkBackTarget, extended.to, extended.endTime)
     enterLeg(index, announce = false)
     board(announce = false, verifiable = false)
     val alightAlong = if (alongs.size >= 2) alongs[alongs.size - 2] else 0.0
@@ -347,3 +353,98 @@ private fun OnboardSession.resumeRide(watch: OnboardSession.AlightWatch, pastAli
     )
     evaluate()
 }
+
+private fun OnboardSession.setWalkBack(destination: Place, start: Place, date: Instant) {
+    val distance = start.coordinate.distanceTo(destination.coordinate)
+    val duration = kotlin.math.max(60, (distance / walkingSpeed).toInt())
+    val end = date.plusSeconds(duration.toLong())
+    val to = Place(
+        name = "END",
+        lat = destination.lat,
+        lon = destination.lon,
+        level = destination.level,
+        arrival = end,
+        scheduledArrival = end,
+        vertexType = Place.VertexType.NORMAL
+    )
+    val walk = Leg(
+        mode = TransportationMode.WALK,
+        from = start,
+        to = to,
+        duration = duration,
+        startTime = date,
+        endTime = end,
+        scheduledStartTime = date,
+        scheduledEndTime = end,
+        realTime = false,
+        distance = distance,
+        legGeometry = LegGeometry(points = "", length = 0)
+    )
+    val (path, _) = OnboardSession.buildPath(walk)
+    val walkManeuvers = WalkManeuverBuilder.maneuvers(emptyList(), path)
+    if (walkBackDestination != null && legs.lastOrNull()?.mode == TransportationMode.WALK) {
+        legs = legs.toMutableList().also { it[it.lastIndex] = walk }
+        paths = paths.toMutableList().also { it[it.lastIndex] = path }
+        stopAlongs = stopAlongs.toMutableList().also { it[it.lastIndex] = emptyList() }
+        maneuvers = maneuvers.toMutableList().also { it[it.lastIndex] = walkManeuvers }
+    } else {
+        legs = legs + walk
+        paths = paths + path
+        stopAlongs = stopAlongs + listOf(emptyList())
+        maneuvers = maneuvers + listOf(walkManeuvers)
+    }
+    walkBackDestination = destination
+    fetchWalkBackRoute(legs.lastIndex, start, destination)
+}
+
+private fun OnboardSession.fetchWalkBackRoute(index: Int, start: Place, destination: Place) {
+    walkBackJob?.cancel()
+    walkBackJob = scope.launch {
+        val route = walkingLeg(start.coordinate, destination.coordinate) ?: return@launch
+        if (walkBackDestination != destination || index !in legs.indices || legs[index].isTransit) return@launch
+        val current = legs[index]
+        val path = RoutePath.encoded(route.legGeometry.points, 1e6)
+        if (path.isEmpty) return@launch
+        val duration = kotlin.math.max(60, route.duration)
+        val end = current.startTime.plusSeconds(duration.toLong())
+        legs = legs.toMutableList().also {
+            it[index] = current.copy(
+                duration = duration,
+                endTime = end,
+                scheduledEndTime = end,
+                to = current.to.copy(arrival = end, scheduledArrival = end),
+                distance = route.distance ?: current.distance,
+                legGeometry = route.legGeometry,
+                steps = route.steps
+            )
+        }
+        paths = paths.toMutableList().also { it[index] = path }
+        maneuvers = maneuvers.toMutableList().also {
+            it[index] = WalkManeuverBuilder.maneuvers(route.steps.orEmpty(), path)
+        }
+        reroutedWalks.add(index)
+        if (legIndex == index) {
+            alongInLeg = 0.0
+            offRouteStreak = 0
+            spokenManeuvers.clear()
+            isOffRoute = false
+            evaluate()
+        }
+    }
+}
+
+internal suspend fun walkingLeg(from: LatLng, to: LatLng): Leg? = runCatching {
+    val options = ch.cclerc.luxapp.domain.search.RouteOptionsStore.load().copy(
+        from = ch.cclerc.luxcom.model.trip.RouteOptions.RouteLocation(from.latitude, from.longitude),
+        to = ch.cclerc.luxcom.model.trip.RouteOptions.RouteLocation(to.latitude, to.longitude),
+        via = null,
+        viaMinimumStay = emptyList(),
+        time = Instant.now(),
+        arriveBy = false,
+        numItineraries = 1,
+        pageCursor = null
+    )
+    getRoute(options).direct
+        .firstOrNull { itinerary -> itinerary.legs.size == 1 && itinerary.legs[0].mode == TransportationMode.WALK }
+        ?.legs?.first()
+}.getOrNull()
