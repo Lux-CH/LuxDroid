@@ -640,12 +640,25 @@ fun OnboardSession.reroute() {
 
     rerouteJob?.cancel()
     rerouteJob = scope.launch {
-        val coordinates = walkingRoute(location.coordinate, leg.to.coordinate) ?: return@launch
+        val route = walkingLeg(location.coordinate, leg.to.coordinate) ?: return@launch
         if (legIndex != index || phase != OnboardPhase.WALKING) return@launch
-        val path = RoutePath(coordinates)
+        val path = RoutePath.encoded(route.legGeometry.points, 1e6)
         if (path.isEmpty) return@launch
+        val current = legs[index]
+        val end = now.plusSeconds(route.duration.toLong())
+        legs = legs.toMutableList().also {
+            it[index] = current.copy(
+                duration = kotlin.math.max(0, (end.toEpochMilli() - current.startTime.toEpochMilli()) / 1000).toInt(),
+                endTime = end,
+                scheduledEndTime = end,
+                to = current.to.copy(arrival = end, scheduledArrival = end),
+                distance = route.distance ?: current.distance,
+                legGeometry = route.legGeometry,
+                steps = route.steps
+            )
+        }
         paths = paths.toMutableList().also { it[index] = path }
-        maneuvers = maneuvers.toMutableList().also { it[index] = WalkManeuverBuilder.maneuvers(emptyList(), path) }
+        maneuvers = maneuvers.toMutableList().also { it[index] = WalkManeuverBuilder.maneuvers(route.steps.orEmpty(), path) }
         reroutedWalks.add(index)
         alongInLeg = 0.0
         offRouteStreak = 0
@@ -655,23 +668,6 @@ fun OnboardSession.reroute() {
         evaluate()
     }
 }
-
-private suspend fun walkingRoute(from: LatLng, to: LatLng): List<LatLng>? = runCatching {
-    val options = ch.cclerc.luxapp.domain.search.RouteOptionsStore.load().copy(
-        from = RouteOptions.RouteLocation(from.latitude, from.longitude),
-        to = RouteOptions.RouteLocation(to.latitude, to.longitude),
-        via = null,
-        viaMinimumStay = emptyList(),
-        time = Instant.now(),
-        arriveBy = false,
-        numItineraries = 1,
-        pageCursor = null
-    )
-    val walk = getRoute(options).direct.firstOrNull { itinerary ->
-        itinerary.legs.all { it.mode == TransportationMode.WALK }
-    } ?: return@runCatching null
-    walk.legs.flatMap { PolylineCodec.decode(it.legGeometry.points, 1e6) }.takeIf { it.size >= 2 }
-}.getOrNull()
 
 fun OnboardSession.catchUpWithVehicle() {
     if (!isRunning) return
