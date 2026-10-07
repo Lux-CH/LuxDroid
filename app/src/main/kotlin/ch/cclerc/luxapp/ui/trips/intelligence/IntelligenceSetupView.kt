@@ -81,6 +81,7 @@ fun IntelligenceSetupView(onDismiss: () -> Unit) {
     var step by remember { mutableIntStateOf(if (IntelligenceStore.profile.isConfigured) questions.size else INTRO_STEP) }
     var isForward by remember { mutableStateOf(true) }
     var isEditingFromSummary by remember { mutableStateOf(false) }
+    var answered by remember { mutableStateOf(emptySet<String>()) }
     val dragOffset = remember { Animatable(0f) }
 
     val isIntro = step == INTRO_STEP
@@ -105,9 +106,10 @@ fun IntelligenceSetupView(onDismiss: () -> Unit) {
         }
     }
 
-    fun select(option: IntelligenceQuestion.Option) {
+    fun select(question: IntelligenceQuestion, option: IntelligenceQuestion.Option) {
         HapticFeedback.lightImpact()
         draft = option.apply(draft)
+        answered = answered + question.id
         val current = step
         scope.launch {
             delay(320)
@@ -202,7 +204,11 @@ fun IntelligenceSetupView(onDismiss: () -> Unit) {
                             isEditingFromSummary = true
                             go(index)
                         }
-                        else -> QuestionPage(questions[shown], draft, ::select)
+                        else -> QuestionPage(
+                            questions[shown],
+                            draft,
+                            showsSelection = draft.isConfigured || questions[shown].id in answered
+                        ) { select(questions[shown], it) }
                     }
                 }
             }
@@ -245,6 +251,7 @@ fun IntelligenceSetupView(onDismiss: () -> Unit) {
                             .fillMaxWidth()
                             .scaleClickable {
                                 draft = IntelligenceProfile()
+                                answered = emptySet()
                                 isEditingFromSummary = false
                                 go(0)
                             }
@@ -441,6 +448,7 @@ private fun FeatureRow(symbol: String, title: String, detail: String) {
 private fun QuestionPage(
     question: IntelligenceQuestion,
     draft: IntelligenceProfile,
+    showsSelection: Boolean,
     onSelect: (IntelligenceQuestion.Option) -> Unit
 ) {
     val colors = LuxTheme.colors
@@ -482,7 +490,7 @@ private fun QuestionPage(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         pair.forEach { option ->
-                            OptionTile(option, option.isSelected(draft), Modifier.weight(1f).fillMaxHeight()) { onSelect(option) }
+                            OptionTile(option, showsSelection && option.isSelected(draft), Modifier.weight(1f).fillMaxHeight()) { onSelect(option) }
                         }
                     }
                 }
@@ -490,7 +498,7 @@ private fun QuestionPage(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 question.options.forEach { option ->
-                    OptionRow(option, option.isSelected(draft)) { onSelect(option) }
+                    OptionRow(option, showsSelection && option.isSelected(draft)) { onSelect(option) }
                 }
             }
         }
