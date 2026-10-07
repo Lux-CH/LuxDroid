@@ -102,7 +102,7 @@ internal fun IntelligenceSettingsCard(onOpenLearning: () -> Unit) {
         SettingsToggle(
             icon = "brain",
             title = "Apprendre de mes choix",
-            subtitle = "Intelligent s'ajuste doucement d'après les trajets que vous choisissez vraiment.",
+            subtitle = "Magic s'ajuste doucement d'après les trajets que vous choisissez vraiment.",
             checked = learning.isEnabled,
             onCheckedChange = { IntelligenceStore.learning = IntelligenceStore.learning.copy(isEnabled = it) }
         )
@@ -174,7 +174,7 @@ internal fun IntelligenceLearningView(onBack: () -> Unit, modifier: Modifier = M
         AlertDialog(
             onDismissRequest = { confirmsReset = false },
             title = { Text("Effacer l'apprentissage") },
-            text = { Text("Intelligent oubliera ce qu'il a appris de vos choix. Vos réponses sont conservées.") },
+            text = { Text("Magic oubliera ce qu'il a appris de vos choix. Vos réponses sont conservées.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmsReset = false
