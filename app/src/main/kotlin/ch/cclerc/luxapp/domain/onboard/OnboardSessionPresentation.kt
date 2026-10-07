@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.domain.onboard
 
+import ch.cclerc.luxcom.model.Place
 import ch.cclerc.luxapp.data.CrowdConsent
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.DisruptionManager
@@ -47,6 +48,14 @@ fun spokenDeparture(date: Instant): String {
     if (minutes <= 0) return "départ imminent"
     if (minutes == 1) return "départ dans 1 minute"
     return "départ dans $minutes minutes"
+}
+
+fun OnboardSession.spokenDeparture(from: Place, at: Instant): String {
+    val stop = placeName(from)
+    val minutes = ceil(at.secondsSince(Instant.now()) / 60).toInt()
+    if (minutes <= 0) return "Départ imminent de $stop."
+    if (minutes == 1) return "Départ de $stop dans 1 minute."
+    return "Départ de $stop dans $minutes minutes."
 }
 
 fun OnboardSession.startAnnouncement(): String {

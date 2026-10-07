@@ -279,7 +279,7 @@ fun OnboardSession.checkDelay(leg: Leg, index: Int) {
     }
     showAlert(
         OnboardAlert(severity, if (delay >= 2) "clock.badge.exclamationmark.fill" else "clock.fill", title, message),
-        spoken = if (boarded) "$title. $message." else "$title. Départ de ${placeName(leg.from)}, ${spokenDeparture(leg.startTime)}.",
+        spoken = if (boarded) "$title. $message." else "$title. ${spokenDeparture(leg.from, leg.startTime)}",
         urgency = OnboardAnnouncer.Urgency.NOTICE
     )
 }
