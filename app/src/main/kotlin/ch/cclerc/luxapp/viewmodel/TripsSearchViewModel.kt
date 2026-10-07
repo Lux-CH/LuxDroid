@@ -11,6 +11,13 @@ import ch.cclerc.luxapp.domain.routing.PlannedRoute
 import ch.cclerc.luxapp.domain.routing.PlannedVia
 import ch.cclerc.luxapp.domain.routing.StitchedRoutePlanner
 import ch.cclerc.luxapp.domain.search.HybridLocationSearchService
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceLearner
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceProfile
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceStore
+import ch.cclerc.luxapp.domain.intelligence.TripIntelligence
+import ch.cclerc.luxapp.domain.intelligence.TripSuggestion
+import ch.cclerc.luxapp.domain.intelligence.WeatherService
+import ch.cclerc.luxapp.domain.map.LatLng
 import ch.cclerc.luxcom.api.getRoute
 import ch.cclerc.luxcom.api.reverseGeocode
 import ch.cclerc.luxcom.geo.calculateDistance
@@ -30,6 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.ListSerializer
@@ -88,6 +97,7 @@ data class ViaStop(
 )
 
 enum class RoutePreset(val title: String, val symbol: String) {
+    INTELLIGENT("Intelligent", "sparkles"),
     FASTEST("Le plus rapide", "bolt.fill"),
     FEWER_TRANSFERS("Moins de changements", "arrow.triangle.swap"),
     LESS_WALKING("Moins de marche", "figure.walk"),
@@ -124,12 +134,27 @@ class TripsSearchViewModel : ViewModel() {
 
     private val _routePreset = MutableStateFlow(
         RoutePreset.entries.firstOrNull { it.name == Settings.prefs.getString(ROUTE_PRESET_KEY, null) }
-            ?: RoutePreset.FASTEST
+            ?: RoutePreset.INTELLIGENT
     )
     val routePreset: StateFlow<RoutePreset> = _routePreset.asStateFlow()
 
     private val _isPresetFallback = MutableStateFlow(false)
     val isPresetFallback: StateFlow<Boolean> = _isPresetFallback.asStateFlow()
+
+    private val _suggestion = MutableStateFlow<TripSuggestion?>(null)
+    val suggestion: StateFlow<TripSuggestion?> = _suggestion.asStateFlow()
+
+    private val _isThinking = MutableStateFlow(false)
+    val isThinking: StateFlow<Boolean> = _isThinking.asStateFlow()
+
+    private val _showIntelligenceSetup = MutableStateFlow(false)
+    val showIntelligenceSetup: StateFlow<Boolean> = _showIntelligenceSetup.asStateFlow()
+
+    private var intelligenceJob: Job? = null
+
+    fun setShowIntelligenceSetup(show: Boolean) {
+        _showIntelligenceSetup.value = show
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -223,6 +248,11 @@ class TripsSearchViewModel : ViewModel() {
     init {
         fetchRouteOptionsPreferences()
         loadSearchHistory()
+        viewModelScope.launch {
+            IntelligenceStore.profileFlow.drop(1).distinctUntilChanged().collect {
+                if (_routePreset.value == RoutePreset.INTELLIGENT && _showTripResults.value) refreshTripsIfReady()
+            }
+        }
     }
 
     val isSearchActive: Boolean
@@ -635,6 +665,9 @@ class TripsSearchViewModel : ViewModel() {
             _isSearchingTrips.value = true
             allTrips = emptyList()
             currentPageIndex = 0
+            intelligenceJob?.cancel()
+            _suggestion.value = null
+            _isThinking.value = false
         }
 
         _showTripResults.value = true
@@ -649,14 +682,14 @@ class TripsSearchViewModel : ViewModel() {
         val viaStays = if (needsStitching) emptyList() else plannedVias.map { it.stay }
         val timeForRequest = _selectedDate.value ?: Instant.now()
 
-        fun options(preset: RoutePreset) = current.copy(
+        fun options(preset: RoutePreset, directOnly: Boolean) = current.copy(
             from = from,
             to = to,
             via = viaIds.ifEmpty { null },
             viaMinimumStay = if (viaStays.any { it > 0 }) viaStays else emptyList(),
             time = timeForRequest,
             arriveBy = _departureType.value == DepartureType.ARRIVE_BY,
-            maxTransfers = preset.maxTransfers(current.maxTransfers),
+            maxTransfers = if (directOnly) 0 else preset.maxTransfers(current.maxTransfers),
             minTransferTime = preset.transferBuffer(current.minTransferTime),
             numItineraries = 5,
             pageCursor = pageCursor,
@@ -666,10 +699,12 @@ class TripsSearchViewModel : ViewModel() {
             numLegAlternatives = 0
         )
 
-        suspend fun plan(preset: RoutePreset): PlannedRoute = if (needsStitching) {
-            StitchedRoutePlanner.plan(options(preset), plannedVias)
-        } else {
-            PlannedRoute(getRoute(options(preset)))
+        val plan: suspend (RoutePreset, Boolean) -> PlannedRoute = { preset, directOnly ->
+            if (needsStitching) {
+                StitchedRoutePlanner.plan(options(preset, directOnly), plannedVias)
+            } else {
+                PlannedRoute(getRoute(options(preset, directOnly)))
+            }
         }
 
         val preset = if (pageCursor != null && _isPresetFallback.value) RoutePreset.FASTEST else _routePreset.value
@@ -677,12 +712,12 @@ class TripsSearchViewModel : ViewModel() {
         tripsJob?.cancel()
         tripsJob = viewModelScope.launch {
             try {
-                var result = plan(preset)
+                var result = plan(preset, false)
                 var fellBack = false
-                if (pageCursor == null && preset != RoutePreset.FASTEST &&
+                if (pageCursor == null && preset != RoutePreset.FASTEST && preset != RoutePreset.INTELLIGENT &&
                     result.itineraries.isEmpty() && result.direct.isEmpty()
                 ) {
-                    result = plan(RoutePreset.FASTEST)
+                    result = plan(RoutePreset.FASTEST, false)
                     fellBack = true
                 }
                 if (pageCursor == null) {
@@ -727,6 +762,13 @@ class TripsSearchViewModel : ViewModel() {
                 _isChangingContent.value = false
                 _animateIn.value = true
                 _errorMessage.value = null
+
+                if (pageCursor == null && preset != RoutePreset.INTELLIGENT) {
+                    IntelligenceLearner.forget()
+                }
+                if (pageCursor == null && preset == RoutePreset.INTELLIGENT) {
+                    startIntelligence(result, plannedVias.isEmpty(), timeForRequest, plan)
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Throwable) {
@@ -739,6 +781,55 @@ class TripsSearchViewModel : ViewModel() {
             }
         }
     }
+
+    private fun startIntelligence(
+        base: PlannedRoute,
+        includeDirects: Boolean,
+        time: Instant,
+        plan: suspend (RoutePreset, Boolean) -> PlannedRoute
+    ) {
+        val profile = IntelligenceStore.profile
+        val arriveBy = _departureType.value == DepartureType.ARRIVE_BY
+        val origin = originCoordinate
+        val wantsDirect = TripIntelligence.needsDirectSearch(profile, _routeOptions.value.maxTransfers)
+        val usesCrowd = profile.crowd != IntelligenceProfile.Crowd.INDIFFERENT && Settings.crowdbackAllowed
+        val candidatesBase = base.itineraries + (if (includeDirects) base.direct else emptyList())
+        if (candidatesBase.isEmpty()) return
+
+        _isThinking.value = true
+        intelligenceJob?.cancel()
+        intelligenceJob = viewModelScope.launch {
+            val weatherFetch = async { origin?.let { WeatherService.snapshot(it.latitude, it.longitude, time) } }
+            val directFetch = async {
+                if (!wantsDirect) emptyList() else runCatching { plan(RoutePreset.INTELLIGENT, true).itineraries }.getOrDefault(emptyList())
+            }
+
+            val weather = weatherFetch.await()
+            val lessWalking = if (TripIntelligence.needsLessWalkingSearch(profile, weather)) {
+                runCatching { plan(RoutePreset.LESS_WALKING, false).itineraries }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            val candidates = candidatesBase + directFetch.await() + lessWalking
+            val crowd = if (usesCrowd) TripIntelligence.crowdLevels(candidates) else emptyMap()
+
+            val context = TripIntelligence.Context(profile = profile, weather = weather, arriveBy = arriveBy, crowd = crowd)
+            val suggestion = TripIntelligence.suggest(candidates, context)
+            IntelligenceLearner.remember(candidates, context)
+            _suggestion.value = suggestion
+            _isThinking.value = false
+        }
+    }
+
+    private val originCoordinate: LatLng?
+        get() = when (val from = _fromLocation.value) {
+            is SelectedLocation.SearchResultLocation -> {
+                val result = from.result
+                if (result.lat != 0.0 || result.lon != 0.0) LatLng(result.lat, result.lon) else null
+            }
+            SelectedLocation.CurrentPosition -> LocationService.location.value?.let { LatLng(it.latitude, it.longitude) }
+            null -> null
+        }
 
     private fun maxPageIndex(): Int = max(0, (allTrips.size - 1) / ITEMS_PER_PAGE)
 
@@ -885,6 +976,9 @@ class TripsSearchViewModel : ViewModel() {
         _showMinCharactersMessage.value = false
         _isLoading.value = false
         _isPresetFallback.value = false
+        intelligenceJob?.cancel()
+        _suggestion.value = null
+        _isThinking.value = false
         _fromLocation.value = null
         _toLocation.value = null
         _activeField.value = SearchField.FROM
@@ -907,6 +1001,7 @@ class TripsSearchViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         cancelBackgroundTasks()
+        intelligenceJob?.cancel()
         tripsJob?.cancel()
         pagingJob?.cancel()
     }

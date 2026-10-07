@@ -28,9 +28,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ch.cclerc.luxapp.core.SFSymbol
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceLearner
 import ch.cclerc.luxapp.ui.theme.InterFontFamily
 import ch.cclerc.luxapp.ui.theme.LuxShapes
 import ch.cclerc.luxapp.ui.theme.LuxSprings
@@ -56,6 +58,7 @@ fun TripResultView(
     itinerary: Itinerary,
     modifier: Modifier = Modifier,
     destinationName: String? = null,
+    horizontalInset: Dp = 16.dp,
     onClick: ((Itinerary) -> Unit)? = null
 ) {
     val colors = LuxTheme.colors
@@ -87,7 +90,7 @@ fun TripResultView(
 
     val cardModifier = modifier
         .fillMaxWidth()
-        .padding(horizontal = 16.dp)
+        .padding(horizontal = horizontalInset)
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
@@ -106,7 +109,10 @@ fun TripResultView(
             else it.clickable(
                 interactionSource = interactionSource,
                 indication = null
-            ) { onClick(itinerary) }
+            ) {
+                IntelligenceLearner.observe(itinerary, IntelligenceLearner.Signal.OPENED)
+                onClick(itinerary)
+            }
         }
         .padding(18.dp)
 

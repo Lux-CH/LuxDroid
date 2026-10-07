@@ -4,7 +4,17 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.TransformOrigin
+import ch.cclerc.luxapp.domain.intelligence.intelligenceSignature
+import ch.cclerc.luxapp.ui.navigation.LocalSheetController
+import ch.cclerc.luxapp.ui.navigation.LuxSheetRequest
+import ch.cclerc.luxapp.ui.trips.intelligence.IntelligenceSetupView
+import ch.cclerc.luxapp.ui.trips.intelligence.IntelligenceThinkingView
+import ch.cclerc.luxapp.ui.trips.intelligence.SuggestedTripView
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.horizontalScroll
@@ -166,7 +176,19 @@ fun TripResultsContent(
     val vias by viewModel.vias.collectAsState()
     val isPresetFallback by viewModel.isPresetFallback.collectAsState()
     val isSearchingTrips by viewModel.isSearchingTrips.collectAsState()
+    val showIntelligenceSetup by viewModel.showIntelligenceSetup.collectAsState()
     val colors = LuxTheme.colors
+    val sheets = LocalSheetController.current
+
+    LaunchedEffect(showIntelligenceSetup) {
+        if (!showIntelligenceSetup) return@LaunchedEffect
+        sheets.present(
+            LuxSheetRequest(cornerRadius = LuxShapes.r36, showDragIndicator = false) {
+                IntelligenceSetupView(onDismiss = { sheets.dismiss() })
+            }
+        )
+        viewModel.setShowIntelligenceSetup(false)
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         RoutePresetBar(viewModel = viewModel, modifier = Modifier.padding(top = 14.dp))
@@ -251,7 +273,13 @@ fun RoutePresetBar(
             Row(
                 modifier = Modifier
                     .clip(shape)
-                    .scaleClickable { viewModel.setRoutePreset(preset) }
+                    .scaleClickable {
+                        if (isSelected && preset == RoutePreset.INTELLIGENT) {
+                            viewModel.setShowIntelligenceSetup(true)
+                        } else {
+                            viewModel.setRoutePreset(preset)
+                        }
+                    }
                     .background(fill, shape)
                     .border(0.5.dp, stroke, shape)
                     .padding(vertical = 8.dp, horizontal = 14.dp),
@@ -299,12 +327,20 @@ private fun TripResultsList(
     val isLoadingLater by viewModel.isLoadingLater.collectAsState()
     val isChangingContent by viewModel.isChangingContent.collectAsState()
     val isSearchingTrips by viewModel.isSearchingTrips.collectAsState()
+    val routePreset by viewModel.routePreset.collectAsState()
+    val suggestion by viewModel.suggestion.collectAsState()
+    val isThinking by viewModel.isThinking.collectAsState()
 
-    val hasDivider = directs.isNotEmpty() && trips.isNotEmpty()
-    val firstTripIndex = directs.size + if (hasDivider) 1 else 0
+    val suggestedSignature = suggestion?.itinerary?.intelligenceSignature
+    val visibleDirects = directs.filter { it.intelligenceSignature != suggestedSignature }
+    val visibleTrips = trips.filter { it.intelligenceSignature != suggestedSignature }
+    val showsIntelligence = routePreset == RoutePreset.INTELLIGENT && (suggestion != null || isThinking)
+
+    val hasDivider = visibleDirects.isNotEmpty() && visibleTrips.isNotEmpty()
+    val firstTripIndex = (if (showsIntelligence) 1 else 0) + visibleDirects.size + if (hasDivider) 1 else 0
 
     LaunchedEffect(trips, animateIn) {
-        if (trips.isNotEmpty() && animateIn && directs.isEmpty()) {
+        if (trips.isNotEmpty() && animateIn && directs.isEmpty() && !showsIntelligence) {
             listState.animateScrollToItem(firstTripIndex)
         }
     }
@@ -321,7 +357,35 @@ private fun TripResultsList(
             contentPadding = PaddingValues(top = 12.dp, bottom = listBottomPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            itemsIndexedItineraries(directs, "direct", toLocation?.displayName, onOpenItinerary)
+            if (showsIntelligence) {
+                item(key = "intelligence") {
+                    val openSetup = { viewModel.setShowIntelligenceSetup(true) }
+                    AnimatedContent(
+                        targetState = suggestion,
+                        transitionSpec = {
+                            (fadeIn(tween(350)) + scaleIn(tween(350), initialScale = 0.97f, transformOrigin = TransformOrigin(0.5f, 0f))) togetherWith
+                                fadeOut(tween(200))
+                        },
+                        contentKey = { it?.itinerary?.intelligenceSignature },
+                        label = "intelligenceSuggestion"
+                    ) { shown ->
+                        if (shown != null) {
+                            SuggestedTripView(
+                                suggestion = shown,
+                                destinationName = toLocation?.displayName,
+                                onCustomize = openSetup,
+                                onClick = onOpenItinerary?.let { callback ->
+                                    { clicked: Itinerary -> callback(clicked, toLocation?.displayName) }
+                                }
+                            )
+                        } else {
+                            IntelligenceThinkingView(onCustomize = openSetup)
+                        }
+                    }
+                }
+            }
+
+            itemsIndexedItineraries(visibleDirects, "direct", toLocation?.displayName, onOpenItinerary)
 
             if (hasDivider) {
                 item(key = "directsDivider") {
@@ -333,7 +397,7 @@ private fun TripResultsList(
                 }
             }
 
-            itemsIndexedItineraries(trips, "trip", toLocation?.displayName, onOpenItinerary)
+            itemsIndexedItineraries(visibleTrips, "trip", toLocation?.displayName, onOpenItinerary)
         }
 
         PaginationControls(
