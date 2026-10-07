@@ -159,10 +159,10 @@ class ShortcutEditorViewModel(
 
     fun convertToSearchResult(shortcut: UserShortcut): SearchResult = shortcut.toSearchResult()
 
-    fun save(): Boolean {
-        val location = _selectedLocation.value ?: return false
+    fun save(): UserShortcut? {
+        val location = _selectedLocation.value ?: return null
         val trimmedName = _name.value.trim()
-        if (trimmedName.isEmpty()) return false
+        if (trimmedName.isEmpty()) return null
 
         val coordinates = UserShortcut.Coordinates(
             latitude = location.lat,
@@ -185,29 +185,28 @@ class ShortcutEditorViewModel(
         val stopId = if (location.type == LocationType.STOP) location.id else null
 
         val existingId = editedShortcutId
+        val saved: UserShortcut
         if (_isEditing.value && existingId != null) {
-            shortcutManager.updateShortcut(
-                UserShortcut(
-                    id = existingId,
-                    name = _name.value,
-                    symbol = _selectedSymbol.value,
-                    coordinates = coordinates,
-                    timeSchedule = timeSchedule,
-                    stopId = stopId
-                )
+            saved = UserShortcut(
+                id = existingId,
+                name = _name.value,
+                symbol = _selectedSymbol.value,
+                coordinates = coordinates,
+                timeSchedule = timeSchedule,
+                stopId = stopId
             )
+            shortcutManager.updateShortcut(saved)
         } else {
-            shortcutManager.addShortcut(
-                UserShortcut(
-                    name = _name.value,
-                    symbol = _selectedSymbol.value,
-                    coordinates = coordinates,
-                    timeSchedule = timeSchedule,
-                    stopId = stopId
-                )
+            saved = UserShortcut(
+                name = _name.value,
+                symbol = _selectedSymbol.value,
+                coordinates = coordinates,
+                timeSchedule = timeSchedule,
+                stopId = stopId
             )
+            shortcutManager.addShortcut(saved)
         }
 
-        return true
+        return saved
     }
 }

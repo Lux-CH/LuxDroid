@@ -1,5 +1,10 @@
 package ch.cclerc.luxapp.ui.stops
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import ch.cclerc.luxapp.ui.settings.ShortcutEditorView
+import ch.cclerc.luxapp.ui.navigation.LuxSheetRequest
+import ch.cclerc.luxapp.ui.navigation.LocalSheetController
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -303,6 +308,7 @@ fun StopsMapScreen(
 
     val sheetState = remember { DetentSheetState(listOf(SheetDetent.Medium, SheetDetent.Large), dismissible = true) }
     val shortcuts by ShortcutManager.shared.shortcuts.collectAsStateWithLifecycle()
+    val sheets = LocalSheetController.current
 
     DisposableEffect(Unit) {
         LocationService.startMonitoring()
@@ -752,6 +758,22 @@ fun StopsMapScreen(
                     pin = current,
                     userLocation = initialLocation?.let { LatLng(it.latitude, it.longitude) },
                     onClear = { clearPin() },
+                    onCreateShortcut = {
+                        val location = destination(current)
+                        sheets.present(
+                            LuxSheetRequest(cornerRadius = 38.dp) {
+                                ShortcutEditorView(
+                                    shortcutToEdit = null,
+                                    onDismiss = { sheets.dismiss() },
+                                    prefilledLocation = location,
+                                    onSave = { shortcut ->
+                                        clearPin()
+                                        openShortcut(shortcut)
+                                    }
+                                )
+                            }
+                        )
+                    },
                     onSelect = { stop -> select(stop) },
                     onGo = { go(destination(current)) },
                     modifier = Modifier
@@ -1029,6 +1051,7 @@ private fun PinCard(
     pin: StopsMapPin,
     userLocation: LatLng?,
     onClear: () -> Unit,
+    onCreateShortcut: () -> Unit,
     onSelect: (SearchResult) -> Unit,
     onGo: () -> Unit,
     modifier: Modifier = Modifier
@@ -1068,6 +1091,20 @@ private fun PinCard(
                         style = LuxTheme.type.subheadline,
                         color = colors.secondaryLabel
                     )
+                }
+            }
+            if (shortcut == null) {
+                val enabled = !(pin.isLoading && pin.name == null)
+                Box(
+                    Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(colors.tertiarySystemFill, CircleShape)
+                        .scaleClickable(enabled = enabled) { onCreateShortcut() }
+                        .semantics { contentDescription = "Créer un raccourci" },
+                    contentAlignment = Alignment.Center
+                ) {
+                    SFSymbol(name = "star", size = 12.sp, color = colors.secondaryLabel, weight = 700)
                 }
             }
             SFSymbol(

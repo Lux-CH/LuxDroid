@@ -75,7 +75,9 @@ import kotlinx.coroutines.launch
 fun ShortcutEditorView(
     shortcutToEdit: UserShortcut?,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    prefilledLocation: SearchResult? = null,
+    onSave: ((UserShortcut) -> Unit)? = null
 ) {
     val colors = LuxTheme.colors
     val accent = LuxTheme.accent
@@ -95,6 +97,9 @@ fun ShortcutEditorView(
     var showContent by remember { mutableStateOf(false) }
 
     LaunchedEffect(shortcutToEdit) {
+        if (shortcutToEdit == null && prefilledLocation != null) {
+            viewModel.updateLocation(prefilledLocation)
+        }
         viewModel.setupForEditing(shortcutToEdit)
         showContent = true
     }
@@ -104,7 +109,9 @@ fun ShortcutEditorView(
     fun save() {
         if (!canSave) return
         HapticFeedback.mediumImpact()
-        if (viewModel.save()) onDismiss()
+        val saved = viewModel.save() ?: return
+        onSave?.invoke(saved)
+        onDismiss()
     }
 
     val background = Brush.verticalGradient(
