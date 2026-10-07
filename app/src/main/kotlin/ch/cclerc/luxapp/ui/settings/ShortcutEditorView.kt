@@ -184,7 +184,7 @@ fun ShortcutEditorView(
                             .background(colors.secondarySystemFill, CircleShape)
                             .scaleClickable(haptic = false) { save() }
                     ) {
-                        SFSymbol(name = "plus.circle.fill", size = 24.sp, color = accent)
+                        SFSymbol(name = "link", size = 24.sp, color = accent)
                     }
                 }
                 Spacer(Modifier.height(22.dp))

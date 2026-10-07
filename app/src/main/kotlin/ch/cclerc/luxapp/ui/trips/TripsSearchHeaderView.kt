@@ -625,7 +625,7 @@ private fun InputCard(
                     contentAlignment = Alignment.Center
                 ) {
                     SFSymbol(
-                        name = "point.bottomleft.forward.to.point.topright.scurvepath",
+                        name = "plus",
                         size = 13.sp,
                         weight = 600,
                         color = accent
