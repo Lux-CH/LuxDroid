@@ -400,7 +400,7 @@ private fun SetupIntro() {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Box(Modifier.padding(top = 24.dp)) { Glyph(92.dp) }
-            Text("Intelligent", style = LuxTheme.type.largeTitle, color = colors.label)
+            Text("Magic", style = LuxTheme.type.largeTitle, color = colors.label)
             Text(
                 "Le bon trajet, pas seulement le plus rapide. Quelques questions pour qu'il vous ressemble.",
                 style = LuxTheme.type.body,

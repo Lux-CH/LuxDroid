@@ -97,7 +97,7 @@ data class ViaStop(
 )
 
 enum class RoutePreset(val title: String, val symbol: String) {
-    INTELLIGENT("Intelligent", "sparkles"),
+    INTELLIGENT("Magic", "sparkles"),
     FASTEST("Le plus rapide", "bolt.fill"),
     FEWER_TRANSFERS("Moins de changements", "arrow.triangle.swap"),
     LESS_WALKING("Moins de marche", "figure.walk"),

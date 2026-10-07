@@ -58,7 +58,7 @@ internal fun IntelligenceSettingsCard(onOpenLearning: () -> Unit) {
         SectionHeader(
             icon = "sparkles",
             iconColor = colors.systemPurple,
-            title = "Intelligent",
+            title = "Magic",
             subtitle = "Suggestions selon la météo, l'affluence et vos habitudes"
         )
         SettingsRow(
