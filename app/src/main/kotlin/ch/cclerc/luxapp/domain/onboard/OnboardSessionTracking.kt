@@ -10,6 +10,10 @@ import ch.cclerc.luxcom.model.trip.Leg
 import java.time.Instant
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
+import ch.cclerc.luxapp.domain.station.StationLayoutStore
+import ch.cclerc.luxapp.domain.station.toLatLngs
+import ch.cclerc.luxcom.station.StationLayout
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -24,12 +28,12 @@ fun OnboardSession.handle(fix: OnboardFix, date: Instant = Instant.now()) {
     hasWeakGPS = fix.horizontalAccuracy > usableAccuracy
     userLocation = fix
     motion.record(fix)
-    motionRecorder.record(fix)
     if (phase == OnboardPhase.WALKING && fix.horizontalAccuracy <= 30 && fix.speed >= 0.4 && fix.speed <= 3) {
         measuredPace = measuredPace?.let { it * 0.92 + fix.speed * 0.08 } ?: fix.speed
         paceSamples += 1
     }
     updateHeading()
+    updateGroundSpeed(fix)
 
     if (!hasResolvedStart && fix.horizontalAccuracy <= usableAccuracy) {
         hasResolvedStart = true
@@ -131,6 +135,15 @@ val OnboardSession.usableLocation: OnboardFix?
         return location
     }
 
+fun OnboardSession.updateGroundSpeed(fix: OnboardFix) {
+    if (fix.speed < 0 || fix.speedAccuracy < 0 || fix.speedAccuracy > 2.5 || fix.horizontalAccuracy > 50) return
+    val smoothed = smoothedSpeed?.let { it * 0.6 + fix.speed * 0.4 } ?: fix.speed
+    smoothedSpeed = smoothed
+    speedAt = now
+    val kmh = Math.round(smoothed * 3.6).toInt()
+    if (groundSpeed != kmh) groundSpeed = kmh
+}
+
 fun OnboardSession.evaluateWalking() {
     val leg = currentLeg ?: return
     val path = currentPath ?: return
@@ -170,8 +183,34 @@ fun OnboardSession.evaluateWalking() {
         val next = legs[legIndex + 1]
         if (next.from.coordinate.distanceTo(location.coordinate) < stopRadius) {
             completeLeg()
+            return
+        }
+        if (isOnPlatform(next, location, path)) {
+            platformFixes += 1
+            if (platformFixes >= 2) completeLeg()
+        } else {
+            platformFixes = 0
         }
     }
+}
+
+// A train stops anywhere along its platform, not at the stop point: standing by the
+// departure track counts once past the walk's last stairs (an underpass runs below it).
+fun OnboardSession.isOnPlatform(leg: Leg, location: OnboardFix, path: RoutePath): Boolean {
+    if (!leg.mode.isMainlineRail) return false
+    val uic = StationLayout.uic(leg.from.stopId) ?: return false
+    val layout = stationLayouts[uic] ?: StationLayoutStore.cached(uic) ?: return false
+    val track = layout.track(leg.from.track ?: leg.from.scheduledTrack, leg.from.stopId) ?: return false
+    val edges = track.edges.map { RoutePath(it.toLatLngs()) }.filter { !it.isEmpty }
+    if (edges.isEmpty()) return false
+
+    val lastStairs = maneuvers.getOrNull(legIndex)?.lastOrNull { it.isLevelChange }?.along
+    if (lastStairs != null && alongInLeg < lastStairs - 10) return false
+    val platformLength = track.platform?.length ?: edges.maxOfOrNull { it.length } ?: 0.0
+    if (path.length - alongInLeg >= platformLength + 60) return false
+
+    val tolerance = max(15.0, min(location.horizontalAccuracy, 35.0))
+    return edges.any { edge -> (edge.project(location.coordinate)?.offset ?: Double.POSITIVE_INFINITY) < tolerance }
 }
 
 fun OnboardSession.updateManeuvers() {
@@ -321,11 +360,18 @@ fun OnboardSession.evaluateRiding() {
 fun OnboardSession.evaluateRidingTrain(leg: Leg, alongs: List<Double>) {
     val timetable = estimatedAlongByTime(leg, alongs)
     var gpsAlong: Double? = null
+    // realtime can be minutes off: once fixes agree with each other, the timetable no longer vets them
+    val following = trainGPSStreak > 0 && now.secondsSince(trainGPSAt) < 60
+    fun plausible(along: Double, timestamp: Instant): Boolean {
+        if (!following) return abs(along - timetable) < 15_000
+        val elapsed = max(0.0, timestamp.secondsSince(lastTrainFix))
+        return abs(along - (trainFix.first + trainFix.second * elapsed)) < 150 + 40 * elapsed
+    }
     val location = userLocation
-    val projection = location?.let { currentPath?.project(it.coordinate, alongInLeg) }
+    val projection = location?.let { currentPath?.project(it.coordinate, if (following) trainFix.first else null) }
     if (location != null && location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= 25 &&
         now.secondsSince(location.timestamp) < 4 && projection != null &&
-        projection.offset < 40 && abs(projection.along - timetable) < 2500
+        projection.offset < 40 && plausible(projection.along, location.timestamp)
     ) {
         gpsAlong = projection.along
         if (location.timestamp.isAfter(lastTrainFix)) {
@@ -541,6 +587,7 @@ fun OnboardSession.enterLeg(index: Int, announce: Boolean = true) {
     showsCrowdPrompt = false
     crowdPromptJob?.cancel()
     lastAtBoardingStop = null
+    platformFixes = 0
     if (boarding?.legIndex != index) boarding = null
 
     if (leg.isTransit) {
