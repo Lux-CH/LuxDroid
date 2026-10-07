@@ -66,7 +66,13 @@ object LocationService {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
             SensorManager.getOrientation(rotationMatrix, orientationAngles)
             val degrees = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
-            _heading.value = (degrees + 360f) % 360f
+            val heading = (degrees + 360f) % 360f
+            val previous = _heading.value
+            if (previous != null) {
+                val delta = kotlin.math.abs(((heading - previous + 540f) % 360f) - 180f)
+                if (delta < 5f) return
+            }
+            _heading.value = heading
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}

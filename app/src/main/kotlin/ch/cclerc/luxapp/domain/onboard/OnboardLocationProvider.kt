@@ -15,6 +15,10 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import ch.cclerc.luxapp.domain.map.LatLng
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.LocationCallback
@@ -30,6 +34,7 @@ data class OnboardFix(
     val coordinate: LatLng,
     val horizontalAccuracy: Double,
     val speed: Double,
+    val speedAccuracy: Double = -1.0,
     val course: Double,
     val courseAccuracy: Double,
     val timestamp: Instant
@@ -92,9 +97,20 @@ class OnboardLocationProvider(context: Context) {
         }
     }
 
+    private val lifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) {
+            if (running) startHeading()
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            sensorManager?.unregisterListener(sensorListener)
+        }
+    }
+
     fun start() {
         if (running) return
         running = true
+        ProcessLifecycleOwner.get().lifecycle.addObserver(lifecycleObserver)
         if (hasPermission()) {
             try {
                 fused.lastLocation.addOnSuccessListener { location ->
@@ -104,8 +120,15 @@ class OnboardLocationProvider(context: Context) {
             }
         }
         requestUpdates()
+        if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            startHeading()
+        }
+    }
+
+    private fun startHeading() {
         sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
             headingAccuracy = 20.0
+            sensorManager.unregisterListener(sensorListener)
             sensorManager.registerListener(sensorListener, sensor, SensorManager.SENSOR_DELAY_UI)
         }
     }
@@ -113,6 +136,7 @@ class OnboardLocationProvider(context: Context) {
     fun stop() {
         if (!running) return
         running = false
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(lifecycleObserver)
         fused.removeLocationUpdates(callback)
         sensorManager?.unregisterListener(sensorListener)
     }
@@ -152,6 +176,7 @@ class OnboardLocationProvider(context: Context) {
                 coordinate = LatLng(location.latitude, location.longitude),
                 horizontalAccuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else -1.0,
                 speed = if (location.hasSpeed()) location.speed.toDouble() else -1.0,
+                speedAccuracy = if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else -1.0,
                 course = if (location.hasBearing()) location.bearing.toDouble() else -1.0,
                 courseAccuracy = if (location.hasBearingAccuracy()) location.bearingAccuracyDegrees.toDouble() else -1.0,
                 timestamp = Instant.ofEpochMilli(location.time)
