@@ -621,7 +621,7 @@ private fun SetupSummary(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(Modifier.padding(top = 16.dp)) { Glyph(68.dp) }
-            Text("Votre Intelligent", style = LuxTheme.type.title, color = colors.label)
+            Text("Votre Magic", style = LuxTheme.type.title, color = colors.label)
             Text(
                 "Combiné à la météo, à l'affluence signalée et à vos lignes habituelles. Touchez une carte pour la modifier.",
                 style = LuxTheme.type.subheadline,
