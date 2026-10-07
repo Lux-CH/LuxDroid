@@ -1,5 +1,15 @@
 package ch.cclerc.luxapp.ui.onboard
 
+import androidx.compose.ui.semantics.semantics
+import ch.cclerc.luxcom.station.StationLayout
+import ch.cclerc.luxapp.domain.onboard.PlatformAdvice
+import ch.cclerc.luxcom.model.TransportationMode
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import ch.cclerc.luxapp.ui.theme.LuxSprings
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import ch.cclerc.luxapp.ui.itinerary.LocalCountdownColor
 import ch.cclerc.luxapp.ui.theme.legColor
 import androidx.compose.runtime.CompositionLocalProvider
@@ -661,12 +671,17 @@ private fun ContextRow(session: OnboardSession, modifier: Modifier) {
                 if (session.isInStation && formation != null) {
                     FormationSummary(formation, session.formationPlatformSectors)
                 }
+                val advice = session.platformAdvice
+                if (session.isInStation && advice != null) {
+                    PlatformAdviceRow(advice, isRiding = false)
+                }
             }
         }
         OnboardPhase.WAITING -> Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             session.formation?.let {
                 FormationSummary(it, session.formationPlatformSectors, Modifier.padding(bottom = 2.dp))
             }
+            session.platformAdvice?.let { PlatformAdviceRow(it, isRiding = false) }
             session.rideInfo?.let { RideCommunityStrip(it) }
             val accent = LuxTheme.accent
             Row(
@@ -685,6 +700,7 @@ private fun ContextRow(session: OnboardSession, modifier: Modifier) {
         }
         OnboardPhase.RIDING -> Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             RideProgress(session)
+            session.platformAdvice?.let { PlatformAdviceRow(it, isRiding = true) }
             session.rideInfo?.let { RideCommunityStrip(it) }
             CrowdRow(session)
         }
@@ -926,3 +942,116 @@ private fun LegRow(leg: Leg) {
     }
 }
 
+
+@Composable
+fun OnboardSpeedometer(speed: Int, mode: TransportationMode, tint: Color, modifier: Modifier = Modifier) {
+    val colors = LuxTheme.colors
+    val scale = when {
+        mode == TransportationMode.HIGHSPEED_RAIL -> 320.0
+        mode.isMainlineRail -> 200.0
+        mode == TransportationMode.TRAM || mode == TransportationMode.SUBWAY ||
+            mode == TransportationMode.METRO || mode == TransportationMode.FUNICULAR -> 60.0
+        else -> 100.0
+    }
+    val target = (speed / scale).coerceIn(0.0, 1.0).toFloat()
+    val fraction by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = target,
+        animationSpec = LuxSprings.springFor(0.3, 1.0),
+        label = "speedometer"
+    )
+    val track = colors.label.copy(alpha = 0.1f)
+
+    Box(
+        modifier
+            .size(66.dp)
+            .iosShadow(Color.Black.copy(alpha = 0.2f), 2.dp, 0.dp, CircleShape)
+            .clip(CircleShape)
+            .background(LuxMaterials.ultraThick(), CircleShape)
+            .border(0.5.dp, colors.label.copy(alpha = 0.1f), CircleShape)
+            .clearAndSetSemantics { contentDescription = "Vitesse : $speed km/h" }
+            .padding(7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            val inset = stroke.width / 2
+            val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke.width, size.height - stroke.width)
+            val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(track, 135f, 270f, false, topLeft, arcSize, style = stroke)
+            if (fraction > 0f) {
+                val sweep = 270f * fraction
+                rotate(135f) {
+                    drawArc(
+                        Brush.sweepGradient(
+                            0f to tint.copy(alpha = tint.alpha * 0.55f),
+                            (sweep / 360f).coerceAtLeast(0.001f) to tint,
+                            1f to tint
+                        ),
+                        0f, sweep, false, topLeft, arcSize, style = stroke
+                    )
+                }
+            }
+        }
+        Column(
+            Modifier.offset(y = 1.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy((-2).dp)
+        ) {
+            NumericText(
+                text = "$speed",
+                style = LuxTypography.timeVariant(
+                    androidx.compose.ui.text.TextStyle(fontSize = if (speed >= 100) 17.sp else 21.sp, fontWeight = FontWeight.Bold)
+                ),
+                color = colors.label
+            )
+            Text("km/h", fontSize = 9.sp, fontWeight = FontWeight.SemiBold, color = colors.secondaryLabel)
+        }
+    }
+}
+
+@Composable
+fun PlatformAdviceRow(advice: PlatformAdvice, isRiding: Boolean, modifier: Modifier = Modifier) {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    val exitText = when (advice.exitKind) {
+        StationLayout.Access.Kind.ELEVATOR -> "près de l'ascenseur"
+        StationLayout.Access.Kind.ESCALATOR -> "près de l'escalier roulant"
+        StationLayout.Access.Kind.STAIRS -> "près des escaliers"
+        null -> "la plus proche"
+    }
+    val board = advice.boardSector
+    val title = if (!isRiding && board != null) {
+        advice.coach?.let { "Attendez en secteur $board, voiture $it" } ?: "Attendez en secteur $board"
+    } else {
+        "Descendez en secteur ${advice.exitSector}"
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(accent.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+            .padding(10.dp)
+            .semantics(mergeDescendants = true) {},
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            Modifier
+                .size(28.dp)
+                .background(gradientOf(accent), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            SFSymbol(name = "sparkles", size = 13.sp, color = Color.White, weight = 700)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = LuxTheme.type.subheadline.copy(fontWeight = FontWeight.SemiBold), color = colors.label)
+            Text("À ${advice.alightName}, sortie $exitText", style = LuxTheme.type.caption, color = colors.secondaryLabel)
+            if (advice.busyTrain && !isRiding) {
+                Text(
+                    "Train chargé : les voitures en bout de train sont souvent plus calmes",
+                    style = LuxTheme.type.caption,
+                    color = colors.systemOrange
+                )
+            }
+        }
+    }
+}
