@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.maplibre.compose)
     implementation(libs.play.services.location)
+    implementation(libs.androidx.work.runtime)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

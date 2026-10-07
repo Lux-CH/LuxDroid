@@ -12,6 +12,7 @@ import ch.cclerc.luxapp.data.AppDirectories
 import ch.cclerc.luxapp.data.Progress
 import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.ConnectionService
+import ch.cclerc.luxapp.domain.intelligence.DepartureAlertPlanner
 import ch.cclerc.luxapp.domain.onboard.OnboardLiveActivityController
 import ch.cclerc.luxapp.domain.search.SearchResultVisualStyleStore
 import ch.cclerc.luxcom.net.ApiClient
@@ -38,9 +39,12 @@ class LuxApplication : Application() {
             appScope.launch { CacheCleaner.performCleanup(this@LuxApplication) }
         }
         Settings.appLaunchCount += 1
+        DepartureAlertPlanner.init(this)
+        DepartureAlertPlanner.refresh()
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 RelayClient.shared.onAppForeground()
+                DepartureAlertPlanner.refresh()
             }
 
             override fun onStop(owner: LifecycleOwner) {
