@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.stop
 
+import androidx.compose.foundation.layout.Spacer
 import ch.cclerc.luxcom.model.TransportationMode
 import ch.cclerc.luxapp.ui.components.LinePill
 import ch.cclerc.luxapp.domain.StopConnection
@@ -61,13 +62,14 @@ data class StopSheetDetail(val symbol: String, val text: String)
 @Composable
 fun StopDepartureSheet(
     stop: SearchResult,
-    onGo: () -> Unit,
+    onGo: (() -> Unit)?,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     modifier: Modifier = Modifier,
     track: String? = null,
     time: Instant? = null,
     details: List<StopSheetDetail> = emptyList(),
     connections: List<StopConnection>? = null,
+    showsDepartures: Boolean = true,
     onHeaderHeight: (Dp) -> Unit = {}
 ) {
     val colors = LuxTheme.colors
@@ -76,7 +78,7 @@ fun StopDepartureSheet(
     val shownDetails = if (track != null) listOf(StopSheetDetail("signpost.right", getTrackType(track))) + details else details
     var loadedConnections by remember { mutableStateOf<Pair<String, List<StopConnection>>?>(null) }
     LaunchedEffect(stop.id, connections == null) {
-        if (connections != null) return@LaunchedEffect
+        if (connections != null || !showsDepartures) return@LaunchedEffect
         val stopId = stop.id
         loadedConnections = stopId to ConnectionService.connections(stopId)
     }
@@ -113,7 +115,11 @@ fun StopDepartureSheet(
                     }
                 }
             }
-            GoButton(accent, onGo)
+            if (onGo != null) GoButton(accent, onGo)
+        }
+        if (!showsDepartures) {
+            Spacer(Modifier.weight(1f))
+            return@Column
         }
         HorizontalDivider(thickness = 0.5.dp, color = colors.separator)
         key(stop.id, track, time) {
@@ -189,13 +195,15 @@ fun ItineraryStopSheet(
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onHeaderHeight: (Dp) -> Unit,
     modifier: Modifier = Modifier,
-    connections: List<StopConnection> = emptyList()
+    connections: List<StopConnection> = emptyList(),
+    isEndpoint: Boolean = false
 ) {
     val stop = searchResultForPlace(place)
     val details = itineraryStopDetails(place)
     StopDepartureSheet(
         stop = stop,
-        onGo = { onGo(stop) },
+        onGo = if (isEndpoint) null else ({ onGo(stop) }),
+        showsDepartures = !isEndpoint,
         onOpenTrip = onOpenTrip,
         modifier = modifier,
         time = place.departure ?: place.arrival,
@@ -221,17 +229,17 @@ fun itineraryStopDetails(place: Place): List<StopSheetDetail> =
     }
 
 @Composable
-fun rememberStopSheetHeightEstimator(): (Place, Dp, Boolean) -> Dp {
+fun rememberStopSheetHeightEstimator(): (Place, Dp, Boolean, Boolean) -> Dp {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val titleStyle = LuxTheme.type.title3.copy(fontWeight = FontWeight.Bold)
     val detailStyle = LuxTheme.type.subheadline.copy(fontWeight = FontWeight.Medium)
     val buttonStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     return remember(measurer, density, titleStyle, detailStyle) {
-        { place, width, hasConnections ->
+        { place, width, hasConnections, isEndpoint ->
             with(density) {
                 val buttonWidth = measurer.measure("Y aller", buttonStyle).size.width.toDp() + 54.dp
-                val textWidth = maxOf(80.dp, width - 40.dp - 12.dp - buttonWidth)
+                val textWidth = maxOf(80.dp, if (isEndpoint) width - 40.dp else width - 40.dp - 12.dp - buttonWidth)
                 val title = measurer.measure(
                     place.name,
                     titleStyle,
@@ -241,11 +249,16 @@ fun rememberStopSheetHeightEstimator(): (Place, Dp, Boolean) -> Dp {
                 val detailLine = measurer.measure("Départ", detailStyle).size.height.toDp()
                 val connectionRow = if (hasConnections) StopSheetConnectionRowHeight + 4.dp else 0.dp
                 val column = title + connectionRow + (detailLine + 4.dp) * itineraryStopDetails(place).size
-                val header = 26.dp + 14.dp + maxOf(column, 38.dp)
-                header + ItineraryStopSheetFirstGroupHeight
+                if (isEndpoint) {
+                    26.dp + 14.dp + column + ItineraryStopSheetEndpointBottomInset
+                } else {
+                    val header = 26.dp + 14.dp + maxOf(column, 38.dp)
+                    header + ItineraryStopSheetFirstGroupHeight
+                }
             }
         }
     }
 }
 
 val ItineraryStopSheetFirstGroupHeight = 330.dp
+val ItineraryStopSheetEndpointBottomInset = 24.dp

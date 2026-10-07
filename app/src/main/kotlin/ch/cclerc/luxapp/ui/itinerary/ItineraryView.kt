@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui.itinerary
 
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceLearner
 import kotlinx.coroutines.Job
 import ch.cclerc.luxapp.domain.StopConnection
 import ch.cclerc.luxapp.domain.onboard.isTransit
@@ -55,6 +56,7 @@ import ch.cclerc.luxapp.ui.navigation.LuxCoverRequest
 import ch.cclerc.luxapp.ui.navigation.SheetDetent
 import ch.cclerc.luxcom.model.SearchResult
 import ch.cclerc.luxapp.ui.stop.ItineraryStopSheetFirstGroupHeight
+import ch.cclerc.luxapp.ui.stop.ItineraryStopSheetEndpointBottomInset
 import ch.cclerc.luxapp.ui.stop.ItineraryStopSheet
 import ch.cclerc.luxapp.ui.theme.LuxMaterials
 import ch.cclerc.luxapp.ui.theme.LuxTheme
@@ -179,6 +181,7 @@ private fun ItineraryScaffold(
     }
 
     fun startOnboard(itinerary: Itinerary) {
+        IntelligenceLearner.observe(itinerary, IntelligenceLearner.Signal.STARTED)
         val session = OnboardSession(context, itinerary, viewModel.destinationName)
         showDetails = false
         viewModel.trackingMode = MapTrackingMode.NONE
@@ -270,6 +273,7 @@ private fun ItineraryScaffold(
     var stopDestination by remember { mutableStateOf<Place?>(null) }
     var shownStop by remember { mutableStateOf<Place?>(null) }
     var shownConnections by remember { mutableStateOf<List<StopConnection>>(emptyList()) }
+    var shownIsEndpoint by remember { mutableStateOf(false) }
     var connectionsJob by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(Unit) { ConnectionService.warmUp() }
     var stopSheetCompactHeight by remember { mutableStateOf(480.dp) }
@@ -277,8 +281,8 @@ private fun ItineraryScaffold(
     val containerWidth = LocalConfiguration.current.screenWidthDp.dp
     val stopSheetState = remember { DetentSheetState(listOf(SheetDetent.Height(STOP_SHEET_KEY, 480.dp), SheetDetent.Large), dismissible = true) }
     val stopCompactDetent = SheetDetent.Height(STOP_SHEET_KEY, stopSheetCompactHeight)
-    LaunchedEffect(stopSheetCompactHeight) {
-        stopSheetState.detents = listOf(stopCompactDetent, SheetDetent.Large)
+    LaunchedEffect(stopSheetCompactHeight, shownIsEndpoint) {
+        stopSheetState.detents = if (shownIsEndpoint) listOf(stopCompactDetent) else listOf(stopCompactDetent, SheetDetent.Large)
     }
 
     fun ridingLines(place: Place): Set<String> {
@@ -292,9 +296,18 @@ private fun ItineraryScaffold(
         }.mapNotNull { it.routeShortName }.toSet()
     }
 
-    fun presentStopSheet(place: Place, connections: List<StopConnection>) {
-        stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp, connections.isNotEmpty())
+    fun isItineraryEndpoint(place: Place): Boolean {
+        if (isSingle) return false
+        val legs = viewModel.itinerary?.legs ?: return false
+        val first = legs.firstOrNull() ?: return false
+        val last = legs.lastOrNull() ?: return false
+        return listOf(first.from, last.to).any { it.lat == place.lat && it.lon == place.lon }
+    }
+
+    fun presentStopSheet(place: Place, connections: List<StopConnection>, isEndpoint: Boolean = false) {
+        stopSheetCompactHeight = estimateStopSheetHeight(place, containerWidth.takeIf { it > 0.dp } ?: 390.dp, connections.isNotEmpty(), isEndpoint)
         shownConnections = connections
+        shownIsEndpoint = isEndpoint
         shownStop = place
         scope.launch { stopSheetState.snapTo(stopCompactDetent) }
         if (stopDestination != null) {
@@ -310,8 +323,12 @@ private fun ItineraryScaffold(
 
     fun openStopSheet(place: Place) {
         HapticFeedback.softImpact()
-        val riding = ridingLines(place)
         connectionsJob?.cancel()
+        if (isItineraryEndpoint(place)) {
+            presentStopSheet(place, emptyList(), isEndpoint = true)
+            return
+        }
+        val riding = ridingLines(place)
         connectionsJob = scope.launch {
             val lines = ConnectionService.connections(place.parentId ?: place.stopId ?: "")
             presentStopSheet(place, lines.filter { it.line !in riding })
@@ -532,13 +549,14 @@ private fun ItineraryScaffold(
                     ItineraryStopSheet(
                         place = place,
                         connections = shownConnections,
+                        isEndpoint = shownIsEndpoint,
                         onGo = { stop -> planTrip(stop) },
                         onOpenTrip = { tripId, options ->
                             closeStopSheet(restoringDetails = true)
                             coverController.presentItinerary(tripId = tripId, otherTripOptions = options)
                         },
                         onHeaderHeight = { height ->
-                            val compact = height + ItineraryStopSheetFirstGroupHeight
+                            val compact = height + if (shownIsEndpoint) ItineraryStopSheetEndpointBottomInset else ItineraryStopSheetFirstGroupHeight
                             if ((compact - stopSheetCompactHeight).value.let { kotlin.math.abs(it) } > 1f) {
                                 stopSheetCompactHeight = compact
                             }
