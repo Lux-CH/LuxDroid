@@ -60,18 +60,6 @@ private val creditItems = listOf(
         credit = "Développeur Principal",
         imageURL = "https://avatars.githubusercontent.com/u/102235607?v=4",
         url = "https://github.com/c22dev"
-    ),
-    CreditItem(
-        name = "Valentin Busi Dias",
-        credit = "Conseiller intuitivité et design",
-        imageURL = "https://cclerc.ch/lux-assets/credits/val.png",
-        url = "https://cclerc.ch/val"
-    ),
-    CreditItem(
-        name = "Michail Kiourkos",
-        credit = "Conseiller intuitivité et design",
-        imageURL = "https://cclerc.ch/lux-assets/credits/michail.jpeg",
-        url = "https://www.linkedin.com/in/michail-kiourkos-42025338a/"
     )
 )
 
