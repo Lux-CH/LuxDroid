@@ -10,6 +10,8 @@ import ch.cclerc.luxapp.data.Settings
 import ch.cclerc.luxapp.domain.map.LatLng
 import ch.cclerc.luxapp.domain.map.VehicleVisualisation
 import ch.cclerc.luxapp.domain.map.distanceTo
+import ch.cclerc.luxapp.domain.intelligence.DepartureAlertPlanner
+import ch.cclerc.luxapp.domain.intelligence.TripIntelligence
 import ch.cclerc.luxapp.domain.station.StationLayoutStore
 import ch.cclerc.luxapp.domain.station.StationWalk
 import ch.cclerc.luxcom.api.reverseGeocode
@@ -106,11 +108,21 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     var positionDelay: Double? by mutableStateOf(null)
     internal var positionDelayAt: Instant = Instant.EPOCH
     var hasEstimatedVehicle: Boolean by mutableStateOf(false)
+    var groundSpeed: Int? by mutableStateOf(null)
+    internal var smoothedSpeed: Double? = null
+    internal var speedAt: Instant = Instant.EPOCH
     var isReplanning: Boolean by mutableStateOf(false)
+    var transferOptions: List<ReplanProposal> by mutableStateOf(emptyList())
+    internal var transferOptionsJob: Job? = null
+    internal var transferOptionsCheck: Pair<String, Instant>? = null
+    internal var transferContext: TripIntelligence.Context? = null
     var formation: TrainFormation? by mutableStateOf(null)
     internal var formationTarget = ""
     internal var formationFetchedAt: Instant = Instant.EPOCH
     internal var formationJob: Job? = null
+    var platformAdvice: PlatformAdvice? by mutableStateOf(null)
+    internal var platformAdviceTarget = ""
+    internal var platformAdviceJob: Job? = null
 
     val needsSharingConsent: Boolean get() = Settings.onboardCrowdConsent == CrowdConsent.UNDECIDED
 
@@ -129,7 +141,6 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
 
     internal val locationProvider = OnboardLocationProvider(appContext)
     internal val motion = OnboardMotionDetector(appContext)
-    internal val motionRecorder = OnboardMotionRecorder(appContext)
     internal var measuredPace: Double? = null
     internal val tripKeyFrames = mutableMapOf<Int, Pair<List<VehicleVisualisation.KeyFrame>, Instant>>()
     internal var paceSamples = 0
@@ -141,6 +152,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     internal var crowdPromptJob: Job? = null
     internal val promptedLegs = mutableSetOf<Int>()
     internal var lastAtBoardingStop: Instant? = null
+    internal var platformFixes = 0
     internal var boarding: Boarding? = null
     internal val retargetedLegs = mutableSetOf<Int>()
     internal var replanJob: Job? = null
@@ -160,7 +172,8 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     internal var crowdAckJob: Job? = null
     internal var alertDismissJob: Job? = null
     internal var rerouteJob: Job? = null
-    internal var isRunning = false
+    var isRunning = false
+        internal set
     internal var hasResolvedStart = false
     internal var lastFixAt: Instant? = null
     internal var compassHeading: Double? = null
@@ -269,9 +282,14 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
             }
         }
 
+    val finalDestination: LatLng?
+        get() = legs.lastOrNull()?.let { LatLng(it.to.lat, it.to.lon) }
+
     fun start() {
         if (isRunning || legs.isEmpty()) return
         isRunning = true
+        active = this
+        DepartureAlertPlanner.refresh(force = true)
 
         enterLeg(0, announce = false)
 
@@ -279,9 +297,6 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         locationProvider.onHeading = { heading -> handle(heading) }
         locationProvider.start()
         motion.start()
-        if (Settings.onboardMotionRecording) {
-            motionRecorder.start(legs.mapNotNull { it.routeShortName }.joinToString(" ") + " → " + destinationName)
-        }
         isTracking = true
 
         RelayClient.shared.setBackgroundKeepAlive(true)
@@ -302,8 +317,11 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
 
     fun stop() {
         formationJob?.cancel()
+        platformAdviceJob?.cancel()
         if (!isRunning) return
         isRunning = false
+        if (active === this) active = null
+        DepartureAlertPlanner.refresh(force = true)
         tickJob?.cancel()
         crowdAckJob?.cancel()
         alertDismissJob?.cancel()
@@ -316,6 +334,7 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         rideInfoJob?.cancel()
         crowdPromptJob?.cancel()
         replanJob?.cancel()
+        transferOptionsJob?.cancel()
         arrivalJob?.cancel()
         stopTracking()
         announcer.stop()
@@ -325,20 +344,6 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
             announcer.shutdown()
             scope.cancel()
         }
-    }
-
-    fun recordContext() {
-        val leg = currentLeg
-        motionRecorder.context(
-            phase = phase.name.lowercase(),
-            leg = legIndex,
-            mode = leg?.mode?.name ?: "",
-            line = leg?.routeShortName ?: "",
-            trip = leg?.tripId ?: "",
-            nextStop = nextStopIndex,
-            along = alongInLeg,
-            locked = hasTrainGPS
-        )
     }
 
     fun refreshMotion() {
@@ -352,7 +357,6 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
         isTracking = false
         locationProvider.stop()
         motion.stop()
-        motionRecorder.stop()
         RelayClient.shared.stopOnboardReports()
         RelayClient.shared.setBackgroundKeepAlive(false)
     }
@@ -490,11 +494,16 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
                 replan = null
             }
         }
+        if (groundSpeed != null && now.secondsSince(speedAt) > 8) {
+            smoothedSpeed = null
+            groundSpeed = null
+        }
         lookForEarlierDeparture()
+        refreshTransferOptions()
         catchUpWithVehicle()
-        recordContext()
         updateEstimates()
         refreshFormationIfNeeded()
+        refreshPlatformAdvice()
         val fixAt = lastFixAt
         if (fixAt != null && now.secondsSince(fixAt) > 45) {
             hasWeakGPS = true
@@ -541,6 +550,9 @@ class OnboardSession(context: Context, itinerary: Itinerary, destinationName: St
     }
 
     companion object {
+        var active: OnboardSession? = null
+            private set
+
         fun canStart(itinerary: Itinerary, date: Instant = Instant.now()): Boolean {
             if (itinerary.legs.isEmpty()) return false
             return itinerary.startTime.secondsSince(date) < 3 * 3600 && itinerary.endTime.secondsSince(date) > -10 * 60

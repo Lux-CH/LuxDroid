@@ -6,7 +6,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.key
+import androidx.compose.ui.graphics.graphicsLayer
+import ch.cclerc.luxapp.domain.onboard.useTransferOption
+import ch.cclerc.luxapp.ui.theme.LuxSprings
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -337,6 +343,7 @@ fun ReplanCard(session: OnboardSession, modifier: Modifier = Modifier) {
             ReplanReason.CANCELLED -> Triple("Véhicule supprimé", "xmark.octagon.fill", colors.systemRed)
             ReplanReason.EARLIER -> Triple("Départ plus tôt possible", "hare.fill", colors.systemGreen)
             ReplanReason.FASTER -> Triple("Correspondance plus rapide", "hare.fill", colors.systemGreen)
+            ReplanReason.ALTERNATIVE -> Triple("Autres options", "arrow.triangle.branch", colors.systemOrange)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -353,7 +360,7 @@ fun ReplanCard(session: OnboardSession, modifier: Modifier = Modifier) {
             }
         }
 
-        ProposalRow(session, proposal)
+        ReplanOptionRow(session, proposal)
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
@@ -391,14 +398,42 @@ fun ReplanCard(session: OnboardSession, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ProposalRow(session: OnboardSession, proposal: ReplanProposal) {
+fun ReplanOptionRow(session: OnboardSession, proposal: ReplanProposal, modifier: Modifier = Modifier) {
     val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
     val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier = Modifier
+    Column(
+        modifier
             .fillMaxWidth()
             .background(colors.label.copy(alpha = 0.05f), shape)
             .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ReplanOptionContent(session, proposal)
+        proposal.insight?.let { insight ->
+            Row(
+                Modifier.padding(start = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SFSymbol(name = "sparkles", size = 11.sp, color = accent, weight = 700)
+                Text(
+                    insight.text,
+                    style = LuxTheme.type.caption.copy(fontWeight = FontWeight.SemiBold),
+                    color = accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplanOptionContent(session: OnboardSession, proposal: ReplanProposal) {
+    val colors = LuxTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -413,13 +448,22 @@ private fun ProposalRow(session: OnboardSession, proposal: ReplanProposal) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    transit.headsign?.let { "Direction $it" } ?: "",
-                    style = LuxTheme.type.caption,
-                    color = colors.secondaryLabel,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val transfers = proposal.transfers
+                    if (transfers != null && transfers > 0) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                            SFSymbol(name = "arrow.triangle.swap", size = 11.sp, color = colors.secondaryLabel)
+                            Text("$transfers", style = LuxTheme.type.caption, color = colors.secondaryLabel, maxLines = 1)
+                        }
+                    }
+                    Text(
+                        transit.headsign?.let { "Direction $it" } ?: "",
+                        style = LuxTheme.type.caption,
+                        color = colors.secondaryLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         } else {
             Box(Modifier.width(42.dp), contentAlignment = Alignment.Center) {
@@ -441,6 +485,80 @@ private fun ProposalRow(session: OnboardSession, proposal: ReplanProposal) {
                     style = LuxTheme.type.caption.copy(fontWeight = FontWeight.Bold),
                     color = if (minutes > 0) colors.systemOrange else colors.systemGreen
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun TransferOptionsCard(session: OnboardSession, modifier: Modifier = Modifier) {
+    val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
+    var isExpanded by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = LuxSprings.springFor(0.4, 1.0),
+        label = "transferChevron"
+    )
+    val shape = RoundedCornerShape(22.dp)
+
+    Column(
+        modifier
+            .fillMaxWidth()
+            .iosShadow(Color.Black.copy(alpha = 0.14f), 12.dp, 4.dp, shape)
+            .clip(shape)
+            .background(LuxMaterials.regular(), shape)
+            .padding(12.dp)
+            .animateContentSize(LuxSprings.springFor(0.4, 1.0)),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(interactionSource = null, indication = null) {
+                    HapticFeedback.selectionChanged()
+                    isExpanded = !isExpanded
+                },
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .background(gradientOf(accent), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                SFSymbol(name = "arrow.triangle.branch", size = 15.sp, color = Color.White, weight = 700)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text("Autres options", style = LuxTheme.type.subheadline.copy(fontWeight = FontWeight.SemiBold), color = colors.label)
+                session.transferOptions.minOfOrNull { it.arrival }?.let { earliest ->
+                    Text("Arrivée dès ${formatTime(earliest)}", style = LuxTheme.type.caption, color = colors.secondaryLabel)
+                }
+            }
+            Text(
+                "${session.transferOptions.size}",
+                style = LuxTypography.timeVariant(LuxTheme.type.subheadline.copy(fontWeight = FontWeight.SemiBold)),
+                color = colors.secondaryLabel
+            )
+            SFSymbol(
+                name = "chevron.up",
+                size = 13.sp,
+                color = colors.secondaryLabel,
+                weight = 700,
+                modifier = Modifier.graphicsLayer { rotationZ = rotation }
+            )
+        }
+
+        if (isExpanded) {
+            session.transferOptions.forEach { option ->
+                key(option.id) {
+                    ReplanOptionRow(
+                        session,
+                        option,
+                        Modifier.scaleClickable { session.useTransferOption(option) }
+                    )
+                }
             }
         }
     }

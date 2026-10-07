@@ -1,5 +1,7 @@
 package ch.cclerc.luxapp.ui.onboard
 
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -252,7 +254,20 @@ fun OnboardNavigationScreen(
                 if (alert != null) OnboardAlertToast(alert, onDismiss = { session.dismissAlert() })
             }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                val speed = session.groundSpeed
+                val ridingLeg = session.currentLeg
+                AnimatedVisibility(
+                    visible = session.phase == OnboardPhase.RIDING && speed != null && ridingLeg != null,
+                    enter = scaleIn(initialScale = 0.6f) + fadeIn(),
+                    exit = scaleOut(targetScale = 0.6f) + fadeOut()
+                ) {
+                    var shown by remember { mutableStateOf(speed ?: 0) }
+                    if (speed != null) shown = speed
+                    val leg = ridingLeg ?: return@AnimatedVisibility
+                    OnboardSpeedometer(speed = shown, mode = leg.mode, tint = bright(leg, LuxTheme.accent))
+                }
+                Spacer(Modifier.weight(1f))
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ControlButton(if (session.voiceEnabled) "speaker.wave.2.fill" else "speaker.slash.fill") {
                         HapticFeedback.selectionChanged()
@@ -304,6 +319,14 @@ fun OnboardNavigationScreen(
                     onDismiss = { session.dismissCrowdPrompt() },
                     modifier = Modifier.padding(bottom = 10.dp)
                 )
+            }
+            AnimatedVisibility(
+                visible = session.replan == null && !session.isReplanning && !session.showsCrowdPrompt &&
+                    session.transferOptions.isNotEmpty(),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut()
+            ) {
+                TransferOptionsCard(session, Modifier.padding(bottom = 10.dp))
             }
             Spacer(Modifier.height(sheetState.peekHeightDp + 16.dp))
         }

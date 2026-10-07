@@ -1,6 +1,12 @@
 package ch.cclerc.luxapp.domain.onboard
 
 import ch.cclerc.luxapp.core.HapticFeedback
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceLearner
+import ch.cclerc.luxapp.domain.intelligence.IntelligenceStore
+import ch.cclerc.luxapp.domain.intelligence.TripIntelligence
+import ch.cclerc.luxapp.domain.intelligence.TripSuggestion
+import ch.cclerc.luxapp.domain.intelligence.intelligenceSignature
+import ch.cclerc.luxapp.domain.map.LatLng
 import ch.cclerc.luxapp.domain.map.distanceTo
 import ch.cclerc.luxapp.domain.search.RouteOptionsStore
 import ch.cclerc.luxapp.ui.itinerary.formatTime
@@ -17,18 +23,21 @@ import kotlin.math.max
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-enum class ReplanReason { CONNECTION, MISSED_DEPARTURE, CANCELLED, EARLIER, FASTER }
+enum class ReplanReason { CONNECTION, MISSED_DEPARTURE, CANCELLED, EARLIER, FASTER, ALTERNATIVE }
 
 class ReplanProposal(
     val reason: ReplanReason,
-    val replaceFrom: Int,
+    var replaceFrom: Int,
     val legs: List<Leg>,
     val arrival: Instant,
     val lateBy: Double,
     val autoApplyAt: Instant?,
     val expiresAt: Instant? = null,
     val exitName: String? = null,
-    val ridingTripId: String? = null
+    val ridingTripId: String? = null,
+    val transfers: Int? = null,
+    val insight: TripSuggestion.Reason? = null,
+    val source: Itinerary? = null
 ) {
     val id: String = UUID.randomUUID().toString()
     val firstTransit: Leg? get() = legs.firstOrNull { it.isTransit }
@@ -70,15 +79,30 @@ fun OnboardSession.requestReplan(reason: ReplanReason) {
     val options = savedRouteOptions(origin, routeTarget(destination), departure)
     val currentArrival = arrivalDate
     val currentNext = legs.subList(replaceFrom, legs.size).firstOrNull { it.isTransit }?.tripId
+    val near = userLocation?.coordinate ?: currentLeg?.let { LatLng(it.from.lat, it.from.lon) }
 
     lastReplanAt = now
     isReplanning = true
     replanJob?.cancel()
     replanJob = scope.launch {
         val result = runCatching { getRoute(options) }.getOrNull()
-        isReplanning = false
         val candidates = result?.itineraries.orEmpty().filter { !it.startTime.isBefore(departure.minusSeconds(60)) }
-        val best = candidates.minByOrNull { it.endTime }
+        var choice = candidates.minByOrNull { it.endTime }
+        var insight: TripSuggestion.Reason? = null
+        val fastestEnd = choice?.endTime
+        if (IntelligenceStore.isIntelligentMode && candidates.size > 1 && fastestEnd != null) {
+            val context = TripIntelligence.liveContext(near, departure, candidates, includeCrowd = false)
+            val ranked = TripIntelligence.rank(candidates, context)
+            val top = ranked.firstOrNull { !it.itinerary.endTime.isAfter(fastestEnd.plusSeconds(2 * 60)) }
+            if (top != null && top.itinerary.intelligenceSignature != choice?.intelligenceSignature) {
+                choice = top.itinerary
+                TripIntelligence.fastest(ranked)?.let { fastest ->
+                    insight = TripIntelligence.reasons(top, fastest, context).firstOrNull()
+                }
+            }
+        }
+        isReplanning = false
+        val best = choice
         if (best == null) {
             showAlert(
                 OnboardAlert(OnboardAlert.Severity.WARNING, "arrow.triangle.branch", "Aucune alternative trouvée", null),
@@ -96,7 +120,10 @@ fun OnboardSession.requestReplan(reason: ReplanReason) {
             legs = best.legs,
             arrival = best.endTime,
             lateBy = best.endTime.secondsSince(currentArrival),
-            autoApplyAt = Instant.now().plusSeconds(60)
+            autoApplyAt = Instant.now().plusSeconds(60),
+            transfers = best.transfers,
+            insight = insight,
+            source = best
         )
         replan = proposal
         proposal.firstTransit?.let { transit ->
@@ -111,6 +138,10 @@ fun OnboardSession.requestReplan(reason: ReplanReason) {
 
 fun OnboardSession.acceptReplan() {
     val proposal = replan ?: return
+    applyReplan(proposal)
+}
+
+fun OnboardSession.applyReplan(proposal: ReplanProposal) {
     if (proposal.replaceFrom > legs.size) return
     HapticFeedback.success()
     replan = null
@@ -169,6 +200,113 @@ fun OnboardSession.declineReplan() {
         declinedReplanLegs.add(legIndex)
     }
     replan = null
+}
+
+val OnboardSession.isAtTransfer: Boolean
+    get() {
+        if ((phase != OnboardPhase.WALKING && phase != OnboardPhase.WAITING) || legIndex <= 0 || nextTransitLeg == null) return false
+        return legs.subList(0, legIndex).any { it.isTransit }
+    }
+
+val OnboardSession.transferOptionsKey: String
+    get() = nextTransitLeg?.let { "${it.first}|${it.second.tripId ?: ""}" } ?: ""
+
+fun OnboardSession.refreshTransferOptions() {
+    val next = nextTransitLeg
+    val leg = currentLeg
+    val destination = legs.lastOrNull()?.to
+    if (!isRunning || !isAtTransfer || next == null || leg == null || destination == null) {
+        transferOptionsJob?.cancel()
+        transferOptionsJob = null
+        if (transferOptions.isNotEmpty()) transferOptions = emptyList()
+        return
+    }
+    val nextIndex = next.first
+    val departing = transferOptions.filter { option ->
+        option.firstTransit?.let { !it.startTime.isAfter(now.plusSeconds(30)) } ?: false
+    }
+    if (departing.isNotEmpty()) {
+        transferOptions = transferOptions.filter { it !in departing }
+    }
+    val key = transferOptionsKey
+    val check = transferOptionsCheck
+    if (check != null && check.first == key && now.secondsSince(check.second) < 180) return
+    if (transferOptionsJob != null) return
+    if (transferOptionsCheck?.first != key && transferOptions.isNotEmpty()) {
+        transferOptions = emptyList()
+    }
+
+    val stopId = leg.from.stopId
+    val location = userLocation?.coordinate
+    val origin = when {
+        phase == OnboardPhase.WAITING && stopId != null -> RouteOptions.RouteLocation(stopId)
+        location != null -> RouteOptions.RouteLocation(location.latitude, location.longitude)
+        stopId != null -> RouteOptions.RouteLocation(stopId)
+        else -> RouteOptions.RouteLocation(leg.from.lat, leg.from.lon)
+    }
+    transferOptionsCheck = key to now
+    val index = legIndex
+    val planned = legs.subList(nextIndex, legs.size).mapNotNull { it.tripId }.toSet()
+    val options = savedRouteOptions(origin, routeTarget(destination), now)
+    val near = location ?: LatLng(leg.from.lat, leg.from.lon)
+    transferOptionsJob = scope.launch {
+        val result = runCatching { getRoute(options) }.getOrNull()
+        val current = Instant.now()
+        var ordered = result?.itineraries.orEmpty()
+            .filter { itinerary ->
+                if (itinerary.legs.any { it.cancelled } || itinerary.legs.mapNotNull { it.tripId }.toSet() == planned) {
+                    return@filter false
+                }
+                val first = itinerary.legs.firstOrNull { it.isTransit } ?: return@filter true
+                first.startTime.isAfter(current.plusSeconds(60))
+            }
+            .sortedBy { it.endTime }
+        var insight: TripSuggestion.Reason? = null
+        var context: TripIntelligence.Context? = null
+        if (IntelligenceStore.isIntelligentMode && ordered.isNotEmpty()) {
+            val live = TripIntelligence.liveContext(near, current, ordered)
+            val ranked = TripIntelligence.rank(ordered, live)
+            ordered = ranked.map { it.itinerary }
+            insight = TripIntelligence.insight(ranked, live)
+            context = live
+        }
+        transferOptionsJob = null
+        if (!isRunning || !isAtTransfer || transferOptionsKey != key) return@launch
+        transferContext = context
+        val seen = mutableSetOf<String>()
+        transferOptions = ordered
+            .filter { itinerary -> seen.add(itinerary.legs.firstOrNull { it.isTransit }?.tripId ?: "walk") }
+            .take(3)
+            .mapIndexed { offset, itinerary ->
+                ReplanProposal(
+                    reason = ReplanReason.ALTERNATIVE,
+                    replaceFrom = index,
+                    legs = itinerary.legs,
+                    arrival = itinerary.endTime,
+                    lateBy = itinerary.endTime.secondsSince(arrivalDate),
+                    autoApplyAt = null,
+                    transfers = itinerary.transfers,
+                    insight = if (offset == 0) insight else null,
+                    source = itinerary
+                )
+            }
+    }
+}
+
+fun OnboardSession.useTransferOption(option: ReplanProposal) {
+    if (!isAtTransfer || legIndex < option.replaceFrom) return
+    val chosen = option.source
+    val context = transferContext
+    if (chosen != null && context != null) {
+        val others = transferOptions.mapNotNull { it.source }.filter { it.intelligenceSignature != chosen.intelligenceSignature }
+        IntelligenceLearner.observe(chosen, others, context, IntelligenceLearner.Signal.TRANSFER_OPTION)
+    }
+    option.replaceFrom = legIndex
+    transferOptionsJob?.cancel()
+    transferOptionsJob = null
+    transferOptions = emptyList()
+    applyReplan(option)
+    transferOptionsCheck = transferOptionsKey to now
 }
 
 fun routeTarget(destination: Place): RouteOptions.RouteLocation {
