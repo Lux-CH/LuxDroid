@@ -6,12 +6,6 @@ import ch.cclerc.luxapp.ui.map.MarkerLayer
 import ch.cclerc.luxapp.ui.map.MarkerImageStore
 import ch.cclerc.luxapp.ui.map.MarkerImageHost
 import ch.cclerc.luxapp.ui.map.MarkerAnchor
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -27,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,11 +32,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -72,16 +64,15 @@ import ch.cclerc.luxapp.domain.station.StationLayoutStore
 import ch.cclerc.luxapp.domain.station.StationOverlayContent
 import ch.cclerc.luxapp.domain.station.coordinate
 import ch.cclerc.luxapp.ui.components.linePillAppearance
-import ch.cclerc.luxapp.ui.map.AnnotationBottomAnchor
-import ch.cclerc.luxapp.ui.map.AnnotationOverlay
-import ch.cclerc.luxapp.ui.map.AnnotationOverlayItem
+import ch.cclerc.luxapp.ui.map.EmptyGeoJson
+import ch.cclerc.luxapp.ui.map.MarkerSourceLayer
+import ch.cclerc.luxapp.ui.map.markerPointJson
 import ch.cclerc.luxapp.ui.map.LuxMapView
 import ch.cclerc.luxapp.ui.map.StationShapeLayers
 import ch.cclerc.luxapp.ui.map.boundingBoxOf
 import ch.cclerc.luxapp.ui.map.cameraDistanceMeters
 import ch.cclerc.luxapp.ui.map.rememberLuxCameraState
 import ch.cclerc.luxapp.ui.map.rememberLuxMapStyle
-import ch.cclerc.luxapp.ui.map.rememberMapProjector
 import ch.cclerc.luxapp.ui.map.toCssColorString
 import ch.cclerc.luxapp.ui.map.zoomForCameraDistance
 import ch.cclerc.luxapp.ui.theme.LuxTheme
@@ -118,6 +109,7 @@ import org.maplibre.compose.layers.CircleLayer
 import org.maplibre.compose.layers.FillLayer
 import org.maplibre.compose.layers.LineLayer
 import org.maplibre.compose.sources.GeoJsonData
+import org.maplibre.compose.sources.GeoJsonSource
 import org.maplibre.compose.sources.rememberGeoJsonSource
 import org.maplibre.compose.util.MaplibreComposable
 import org.maplibre.spatialk.geojson.Position
@@ -127,9 +119,13 @@ private val MapWalkBlueDark = Color(red = 0.05f, green = 0.3f, blue = 0.7f)
 private const val TRANSITION_SECONDS = 0.4
 private val LineMetricsOptions = GeoJsonOptions(lineMetrics = true)
 
+private enum class VehicleKind { LIVE, ESTIMATED }
+
+// Everything here that changes every frame is plain fields, never Compose state: the frame loop pushes
+// it straight into map sources, so the map composition only reruns when something structural changes.
 private class OnboardCameraMotion {
-    var puck by mutableStateOf<LatLng?>(null)
-    var puckHeading by mutableStateOf<Double?>(null)
+    var puck: LatLng? = null
+    var puckHeading: Double? = null
     var displayedAlong = 0.0
     var appliedAlong by mutableDoubleStateOf(-1.0)
     var appliedAlongAt = 0.0
@@ -143,7 +139,18 @@ private class OnboardCameraMotion {
     var approach by mutableStateOf<Pair<Int, List<LatLng>>?>(null)
     var approachAt = 0.0
     var puckAlong: Pair<Int, Double>? = null
-    var approachingVehicle by mutableStateOf<LatLng?>(null)
+    var vehicleKind by mutableStateOf<VehicleKind?>(null)
+    var puckSource: GeoJsonSource? = null
+    var vehicleSource: GeoJsonSource? = null
+    var ghostSource: GeoJsonSource? = null
+    val pushed = HashMap<GeoJsonSource, String>()
+    var pushedAt = 0.0
+
+    fun push(source: GeoJsonSource?, json: String) {
+        if (source == null || pushed[source] == json) return
+        pushed[source] = json
+        source.setData(GeoJsonData.JsonString(json))
+    }
 }
 
 @Composable
@@ -160,7 +167,6 @@ fun OnboardMapView(
     val dark = style.isDark
     val accent = LuxTheme.accent
     val cameraState = rememberLuxCameraState()
-    val projector = rememberMapProjector(cameraState)
     val markerImages = rememberMarkerImageStore()
     val motion = remember { OnboardCameraMotion() }
     val following by rememberUpdatedState(isFollowing && !showsOverview)
@@ -222,6 +228,13 @@ fun OnboardMapView(
                     fun blend(constant: Double) = 1 - exp(-dt / constant)
 
                     glidePuck(session, motion, ::blend)
+                    // A style reload resets sources to their initial data, so everything is re-sent now and then.
+                    if (timestamp - motion.pushedAt > 1) {
+                        motion.pushedAt = timestamp
+                        motion.pushed.clear()
+                    }
+                    motion.push(motion.puckSource, markerPointJson(motion.puck, motion.puckHeading ?: 0.0))
+                    pushMovingMarkers(session, motion)
                     if (timestamp - motion.approachAt > 1) {
                         motion.approachAt = timestamp
                         val next = session.remainingApproach(Instant.now())
@@ -232,8 +245,6 @@ fun OnboardMapView(
                         }
                     }
                     glideRouteSplit(session, motion, timestamp, ::blend)
-                    val approaching = session.approachingVehicleCoordinate(Instant.now())
-                    if (approaching != motion.approachingVehicle) motion.approachingVehicle = approaching
                     if (following) {
                         driveCamera(session, motion, cameraState, followPadding, mapHeight, timestamp, ::blend)
                     }
@@ -244,9 +255,10 @@ fun OnboardMapView(
             }
         }
 
-        val routeData = routeFeatures(session, accent)
+        val routeData = remember(session.legs, session.paths, session.phase, session.legIndex, accent) {
+            routeFeatures(session, accent)
+        }
         val currentLength = session.currentPath?.length ?: 0.0
-        val fraction = if (currentLength > 0) motion.appliedAlong / currentLength else 0.0
         val approach = motion.approach
         val arrow = arrowFor(session)
         val stopDots = stopDotFeatures(session, accent)
@@ -268,7 +280,7 @@ fun OnboardMapView(
                 ApproachLayer(approach?.let { (index, coordinates) ->
                     coordinates to getLegColor(session.legs[index], false, accent).copy(alpha = 0.35f)
                 })
-                RouteLayers(routeData, fraction, session.currentLeg?.isTransit == true)
+                RouteLayers(routeData, { if (currentLength > 0) motion.appliedAlong / currentLength else 0.0 }, session.currentLeg?.isTransit == true)
                 ArrowLayers(arrow)
                 StopDotLayer(stopDots.first)
             }
@@ -298,50 +310,76 @@ fun OnboardMapView(
             ) {
                 DestinationFlag(destinationName)
             }
+            MovingMarkerLayers(session, motion, markerImages, accent)
         }
 
         MarkerImageHost(markerImages)
-        val overlayModifier = Modifier.matchParentSize()
+    }
+}
 
-        val nextLeg = session.nextTransitLeg?.second
-        val vehicle = motion.approachingVehicle
-        if (session.approachingVehicle != null && vehicle != null && nextLeg != null) {
-            AnnotationOverlayItem(vehicle.latitude, vehicle.longitude, projector, overlayModifier) {
-                LiveVehicleBadge(nextLeg, accent)
-            }
-        } else if (session.hasEstimatedVehicle && nextLeg != null) {
-            session.estimatedVehicleCoordinate(Instant.now())?.let { coordinate ->
-                AnnotationOverlayItem(coordinate.latitude, coordinate.longitude, projector, overlayModifier) {
-                    EstimatedVehicle(nextLeg, accent)
-                }
-            }
-        }
+@Composable
+@MaplibreComposable
+private fun MovingMarkerLayers(session: OnboardSession, motion: OnboardCameraMotion, store: MarkerImageStore, accent: Color) {
+    val vehicleSource = rememberGeoJsonSource(EmptyGeoJson)
+    val ghostSource = rememberGeoJsonSource(EmptyGeoJson)
+    val puckSource = rememberGeoJsonSource(EmptyGeoJson)
+    SideEffect {
+        motion.vehicleSource = vehicleSource
+        motion.ghostSource = ghostSource
+        motion.puckSource = puckSource
+    }
 
-        if (session.isBehindOrAheadOfSchedule) {
-            session.scheduledWalkerCoordinate(Instant.now())?.let { ghost ->
-                AnnotationOverlayItem(ghost.latitude, ghost.longitude, projector, overlayModifier) {
-                    Box(
-                        Modifier
-                            .alpha(0.55f)
-                            .size(24.dp)
-                            .background(MapWalkBlue, CircleShape)
-                            .border(2.dp, Color.White, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        SFSymbol(name = "figure.walk", size = 12.sp, color = Color.White, weight = 700)
-                    }
-                }
-            }
-        }
-
-        motion.puck?.let { puck ->
-            val camera = cameraState.position
-            val relative = motion.puckHeading?.let { Angle360.delta(camera.bearing, it) }
-            AnnotationOverlayItem(puck.latitude, puck.longitude, projector, overlayModifier) {
-                NavigationPuck(puckStyle(session, accent), relative, camera.tilt)
-            }
+    val nextLeg = session.nextTransitLeg?.second
+    if (nextLeg != null) {
+        val live = motion.vehicleKind == VehicleKind.LIVE
+        MarkerSourceLayer(
+            id = "onboard-vehicle",
+            store = store,
+            source = vehicleSource,
+            imageKey = "${if (live) "live" else "estimated"}|${nextLeg.routeShortName}|${nextLeg.agencyId}|${nextLeg.mode}"
+        ) {
+            if (live) LiveVehicleBadge(nextLeg, accent) else EstimatedVehicle(nextLeg, accent)
         }
     }
+
+    MarkerSourceLayer(id = "onboard-ghost", store = store, source = ghostSource, imageKey = "ghost") {
+        GhostWalker()
+    }
+
+    // One call site per layer id, so a phase change swaps the image instead of re-adding the layer.
+    val hasHeading = session.heading != null
+    val vehicle = puckStyle(session, accent) as? PuckStyle.Vehicle
+    MarkerSourceLayer(
+        id = "onboard-puck",
+        store = store,
+        source = puckSource,
+        imageKey = if (vehicle != null) "vehicle|${vehicle.color.value}|$hasHeading" else "walker|$hasHeading",
+        rotatesWithMap = true,
+        flat = true
+    ) {
+        if (vehicle != null) VehiclePuckHeading(vehicle.color, hasHeading) else WalkerPuck(hasHeading)
+    }
+    if (vehicle != null) {
+        MarkerSourceLayer(id = "onboard-puck-badge", store = store, source = puckSource, imageKey = "badge|$vehicle", flat = true) {
+            VehiclePuckBadge(vehicle)
+        }
+    }
+}
+
+private fun pushMovingMarkers(session: OnboardSession, motion: OnboardCameraMotion) {
+    val now = Instant.now()
+    val hasLeg = session.nextTransitLeg != null
+    val live = if (hasLeg && session.approachingVehicle != null) session.approachingVehicleCoordinate(now) else null
+    val vehicle = live ?: if (hasLeg && session.hasEstimatedVehicle) session.estimatedVehicleCoordinate(now) else null
+    val kind = when {
+        live != null -> VehicleKind.LIVE
+        vehicle != null -> VehicleKind.ESTIMATED
+        else -> null
+    }
+    if (kind != null && kind != motion.vehicleKind) motion.vehicleKind = kind
+    motion.push(motion.vehicleSource, markerPointJson(vehicle))
+    val ghost = if (session.isBehindOrAheadOfSchedule) session.scheduledWalkerCoordinate(now) else null
+    motion.push(motion.ghostSource, markerPointJson(ghost))
 }
 
 private fun nowSeconds(): Double = System.nanoTime() / 1e9
@@ -559,14 +597,14 @@ private fun ApproachLayer(approach: Pair<List<LatLng>, Color>?) {
 
 @Composable
 @MaplibreComposable
-private fun RouteLayers(data: RouteData, fraction: Double, currentIsTransit: Boolean) {
+private fun RouteLayers(data: RouteData, fraction: () -> Double, currentIsTransit: Boolean) {
     SimpleLine("onboard-past", data.past.map { it to null }, Color.Gray.copy(alpha = 0.45f), 5.dp)
     SimpleLine("onboard-future-casing", data.future.map { it.first to null }, Color.White, 8.dp)
     SimpleLine("onboard-future", data.future.map { it.first to it.second }, null, 5.dp)
 
     val json = remember(data.current) { lineFeatures(listOf(data.current to null)) }
     val source = rememberGeoJsonSource(GeoJsonData.JsonString(json), LineMetricsOptions)
-    val split = fraction.coerceIn(0.0001, 0.9999)
+    val split = fraction().coerceIn(0.0001, 0.9999)
     val clear = Color.Transparent
 
     SplitLine("onboard-travelled", source, split, Color.Gray.copy(alpha = 0.5f), clear, 6.dp)
@@ -594,7 +632,7 @@ private fun SplitLine(
     )
 }
 
-private class TurnArrow(val shaft: List<LatLng>, val head: List<LatLng>)
+private data class TurnArrow(val shaft: List<LatLng>, val head: List<LatLng>)
 
 private fun turnArrow(path: RoutePath, along: Double): TurnArrow? {
     val start = max(0.0, along - 12)
@@ -919,62 +957,64 @@ private val HeadingArrowShape = GenericShape { size, _ ->
     close()
 }
 
+// The pucks are captured to bitmaps and drawn by the map, pointing north: the map rotates them by the
+// heading and lays them flat when the camera is pitched.
 @Composable
-fun NavigationPuck(style: PuckStyle, heading: Double?, pitch: Double) {
-    AnimatedContent(
-        targetState = style,
-        transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
-        modifier = Modifier
-            .graphicsLayer {
-                rotationX = pitch.toFloat()
-                cameraDistance = 12f * density
-            }
-            .semantics { contentDescription = "Votre position" },
-        label = "puck"
-    ) { shown ->
-        when (shown) {
-            PuckStyle.Walker -> Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(64.dp).background(WalkBlue.copy(alpha = 0.15f), CircleShape))
-                Box(Modifier.shadow(4.dp, CircleShape).size(42.dp).background(Color.White, CircleShape))
-                if (heading != null) {
-                    SFSymbol(
-                        name = "location.north.fill",
-                        size = 21.sp,
-                        color = WalkBlue,
-                        weight = 900,
-                        modifier = Modifier.rotate(heading.toFloat())
-                    )
-                } else {
-                    Box(Modifier.size(22.dp).background(gradientOf(WalkBlue), CircleShape))
-                }
-            }
-            is PuckStyle.Vehicle -> Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.size(76.dp).background(shown.color.copy(alpha = 0.16f), CircleShape))
-                if (heading != null) {
-                    Box(Modifier.size(76.dp).rotate(heading.toFloat()), contentAlignment = Alignment.TopCenter) {
-                        Box(
-                            Modifier
-                                .offset(y = 5.dp)
-                                .shadow(1.5.dp, HeadingArrowShape)
-                                .size(width = 18.dp, height = 16.dp)
-                                .background(Color.White, HeadingArrowShape)
-                                .padding(2.dp)
-                                .background(shown.color, HeadingArrowShape)
-                        )
-                    }
-                }
-                val shape = RoundedCornerShape(14.dp)
-                Box(
-                    Modifier
-                        .shadow(4.dp, shape)
-                        .size(46.dp)
-                        .background(gradientOf(shown.color), shape)
-                        .border(3.dp, Color.White, shape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    SFSymbol(name = shown.symbol, size = 21.sp, color = shown.textColor, weight = 600)
-                }
-            }
+private fun WalkerPuck(hasHeading: Boolean) {
+    Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(64.dp).background(WalkBlue.copy(alpha = 0.15f), CircleShape))
+        Box(Modifier.shadow(4.dp, CircleShape).size(42.dp).background(Color.White, CircleShape))
+        if (hasHeading) {
+            SFSymbol(name = "location.north.fill", size = 21.sp, color = WalkBlue, weight = 900)
+        } else {
+            Box(Modifier.size(22.dp).background(gradientOf(WalkBlue), CircleShape))
         }
+    }
+}
+
+@Composable
+private fun VehiclePuckHeading(color: Color, hasHeading: Boolean) {
+    Box(Modifier.size(76.dp), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.size(76.dp).background(color.copy(alpha = 0.16f), CircleShape))
+        if (hasHeading) {
+            Box(
+                Modifier
+                    .offset(y = 5.dp)
+                    .shadow(1.5.dp, HeadingArrowShape)
+                    .size(width = 18.dp, height = 16.dp)
+                    .background(Color.White, HeadingArrowShape)
+                    .padding(2.dp)
+                    .background(color, HeadingArrowShape)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VehiclePuckBadge(style: PuckStyle.Vehicle) {
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        Modifier
+            .shadow(4.dp, shape)
+            .size(46.dp)
+            .background(gradientOf(style.color), shape)
+            .border(3.dp, Color.White, shape),
+        contentAlignment = Alignment.Center
+    ) {
+        SFSymbol(name = style.symbol, size = 21.sp, color = style.textColor, weight = 600)
+    }
+}
+
+@Composable
+private fun GhostWalker() {
+    Box(
+        Modifier
+            .alpha(0.55f)
+            .size(24.dp)
+            .background(MapWalkBlue, CircleShape)
+            .border(2.dp, Color.White, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        SFSymbol(name = "figure.walk", size = 12.sp, color = Color.White, weight = 700)
     }
 }

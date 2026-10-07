@@ -83,16 +83,12 @@ import ch.cclerc.luxapp.domain.station.StationOverlayContent
 import ch.cclerc.luxapp.ui.anim.scaleClickable
 import ch.cclerc.luxapp.ui.components.IosActivityIndicator
 import ch.cclerc.luxapp.ui.itinerary.presentItinerary
-import ch.cclerc.luxapp.ui.map.AnnotationBottomAnchor
-import ch.cclerc.luxapp.ui.map.AnnotationOverlay
-import ch.cclerc.luxapp.ui.map.AnnotationOverlayItem
 import ch.cclerc.luxapp.ui.map.LuxMapView
 import ch.cclerc.luxapp.ui.map.StationShapeLayers
 import ch.cclerc.luxapp.ui.map.StationStyle
 import ch.cclerc.luxapp.ui.map.cameraDistanceMeters
 import ch.cclerc.luxapp.ui.map.rememberLuxCameraState
 import ch.cclerc.luxapp.ui.map.rememberLuxMapStyle
-import ch.cclerc.luxapp.ui.map.rememberMapProjector
 import ch.cclerc.luxapp.ui.map.zoomForCameraDistance
 import ch.cclerc.luxapp.ui.navigation.DetentSheet
 import ch.cclerc.luxapp.ui.navigation.DetentSheetState
