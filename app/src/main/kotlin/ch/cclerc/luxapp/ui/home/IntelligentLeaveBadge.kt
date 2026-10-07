@@ -33,9 +33,9 @@ fun IntelligentLeaveBadge(pick: NearbyIntelligence.Pick, modifier: Modifier = Mo
     val leaveIn = floor((pick.leaveAt.toEpochMilli() - now.toEpochMilli()) / 60_000.0).toInt()
     val tint = if (leaveIn <= 0) colors.systemOrange else LuxTheme.accent
     val description = if (leaveIn <= 0) {
-        "Intelligent : partez maintenant, ${pick.walkMinutes} min à pied"
+        "Magic : partez maintenant, ${pick.walkMinutes} min à pied"
     } else {
-        "Intelligent : partez dans $leaveIn min, ${pick.walkMinutes} min à pied"
+        "Magic : partez dans $leaveIn min, ${pick.walkMinutes} min à pied"
     }
 
     Row(
