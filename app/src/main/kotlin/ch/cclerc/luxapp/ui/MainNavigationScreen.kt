@@ -1,5 +1,6 @@
 package ch.cclerc.luxapp.ui
 
+import androidx.compose.ui.zIndex
 import ch.cclerc.luxapp.ui.stops.StopsMapScreen
 import ch.cclerc.luxapp.ui.navigation.LocalCoverController
 import ch.cclerc.luxapp.ui.navigation.LuxCoverRequest
@@ -434,7 +435,7 @@ fun MainNavigationScreen(
                                         )
                                     }
                                     Row(
-                                        Modifier.fillMaxWidth(),
+                                        Modifier.fillMaxWidth().zIndex(1f),
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -514,7 +515,10 @@ fun MainNavigationScreen(
                                         enter = fadeIn() + expandHorizontally(expandFrom = Alignment.Start),
                                         exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.Start)
                                     ) {
-                                        StopsMapButton { openStopsMap() }
+                                        StopsMapButton {
+                                            if (viewMode != ViewMode.Stops) return@StopsMapButton
+                                            openStopsMap()
+                                        }
                                     }
                                 }
                             }
