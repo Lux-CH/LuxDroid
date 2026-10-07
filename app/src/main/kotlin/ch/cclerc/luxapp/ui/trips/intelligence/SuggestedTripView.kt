@@ -149,7 +149,7 @@ private fun IntelligenceHeader(weather: WeatherSnapshot?, onCustomize: () -> Uni
 
         Spacer(Modifier.weight(1f))
 
-        val label = Modifier.semantics { contentDescription = "Personnaliser Intelligent" }
+        val label = Modifier.semantics { contentDescription = "Personnaliser Magic" }
         if (profile.isConfigured) {
             Box(
                 label
