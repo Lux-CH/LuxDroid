@@ -1,5 +1,7 @@
 package ch.cclerc.luxapp.ui.home
 
+import androidx.compose.ui.text.style.TextOverflow
+import ch.cclerc.luxapp.domain.intelligence.NearbyIntelligence
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,7 +123,8 @@ fun IncomingBusView(
     group: GroupedStopTime,
     onOpenTrip: (String, List<TripOption>) -> Unit,
     onSelectLine: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pick: NearbyIntelligence.Pick? = null
 ) {
     val colors = LuxTheme.colors
     val parsed = parseStopName(group.headsign)
@@ -181,10 +184,16 @@ fun IncomingBusView(
                                 fontFamily = InterFontFamily,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = colors.label
+                                color = colors.label,
+                                maxLines = if (pick == null) Int.MAX_VALUE else 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (pick == null) Modifier else Modifier.weight(1f, fill = false)
                             )
                             if (!displayTrack.isNullOrEmpty()) {
                                 TrackBadge(displayTrack)
+                            }
+                            if (pick != null) {
+                                IntelligentLeaveBadge(pick)
                             }
                         }
                     } else {
@@ -209,10 +218,16 @@ fun IncomingBusView(
                                 lineHeight = 17.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = colors.label,
-                                style = tightLineStyle
+                                style = tightLineStyle,
+                                maxLines = if (pick == null) Int.MAX_VALUE else 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (pick == null) Modifier else Modifier.weight(1f, fill = false)
                             )
                             if (!displayTrack.isNullOrEmpty()) {
                                 TrackBadge(displayTrack, Modifier.padding(top = 2.25.dp))
+                            }
+                            if (pick != null) {
+                                IntelligentLeaveBadge(pick, Modifier.padding(top = 2.25.dp))
                             }
                         }
                     }

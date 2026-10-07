@@ -1,5 +1,10 @@
 package ch.cclerc.luxapp.ui.home
 
+import ch.cclerc.luxapp.ui.theme.LuxSprings
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import ch.cclerc.luxapp.domain.intelligence.normalizedHeadsignKey
+import ch.cclerc.luxapp.domain.intelligence.NearbyIntelligence
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,7 +65,8 @@ fun CompactStopView(
     isLastStopOverall: Boolean,
     onOpenStop: (SearchResult) -> Unit,
     onOpenTrip: (String, List<TripOption>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    highlight: NearbyIntelligence.Pick? = null
 ) {
     val colors = LuxTheme.colors
     val viewModel = remember(stop.id) {
@@ -166,7 +172,7 @@ fun CompactStopView(
                 }
             }
         } else {
-            val ordered = orderedRouteNames(viewModel)
+            val ordered = orderedRouteNames(viewModel, highlight)
             val shownRouteNames = ordered.take(maxGroupsToShow)
 
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(0.dp)) {
@@ -179,7 +185,8 @@ fun CompactStopView(
                             groups = groups,
                             isLastRoute = dontShowLastDivider && routeName == shownRouteNames.lastOrNull(),
                             isLastStopOverall = isLastStopOverall,
-                            onOpenTrip = onOpenTrip
+                            onOpenTrip = onOpenTrip,
+                            highlight = highlight
                         )
                     }
                 }
@@ -205,21 +212,31 @@ fun CompactStopView(
     }
 }
 
-private fun orderedRouteNames(viewModel: StopViewModel): List<String> {
-    val names = viewModel.routeNames
-    if (!viewModel.stop.servesMainlineRail) return names
-
-    val rail = names.filter { name ->
-        viewModel.routeGroups[name]?.firstOrNull()?.stopTimes?.firstOrNull()?.mode?.isMainlineRail == true
+private fun orderedRouteNames(viewModel: StopViewModel, highlight: NearbyIntelligence.Pick?): List<String> {
+    var names = viewModel.routeNames
+    if (viewModel.stop.servesMainlineRail) {
+        val rail = names.filter { name ->
+            viewModel.routeGroups[name]?.firstOrNull()?.stopTimes?.firstOrNull()?.mode?.isMainlineRail == true
+        }
+        val topRail = rail.minByOrNull { name ->
+            viewModel.routeGroups[name]
+                ?.mapNotNull { it.stopTimes.firstOrNull() }
+                ?.mapNotNull { it.place.departure ?: it.place.arrival }
+                ?.minOrNull() ?: DISTANT_FUTURE
+        }
+        if (topRail != null) names = listOf(topRail) + names.filter { it != topRail }
     }
-    val topRail = rail.minByOrNull { name ->
-        viewModel.routeGroups[name]
-            ?.mapNotNull { it.stopTimes.firstOrNull() }
-            ?.mapNotNull { it.place.departure ?: it.place.arrival }
-            ?.minOrNull() ?: DISTANT_FUTURE
-    } ?: return names
+    val line = highlight?.line
+    if (line != null && line in names) {
+        names = listOf(line) + names.filter { it != line }
+    }
+    return names
+}
 
-    return listOf(topRail) + names.filter { it != topRail }
+private fun highlightedPage(groups: List<ch.cclerc.luxapp.domain.GroupedStopTime>, highlight: NearbyIntelligence.Pick?): Int? {
+    if (highlight == null) return null
+    val key = highlight.headsign.normalizedHeadsignKey
+    return groups.indexOfFirst { it.routeShortName == highlight.line && it.headsign.normalizedHeadsignKey == key }.takeIf { it >= 0 }
 }
 
 @Composable
@@ -229,9 +246,11 @@ private fun RouteGroupView(
     groups: List<ch.cclerc.luxapp.domain.GroupedStopTime>,
     isLastRoute: Boolean,
     isLastStopOverall: Boolean,
-    onOpenTrip: (String, List<TripOption>) -> Unit
+    onOpenTrip: (String, List<TripOption>) -> Unit,
+    highlight: NearbyIntelligence.Pick?
 ) {
     val colors = LuxTheme.colors
+    val accent = LuxTheme.accent
     val sample = groups.firstOrNull()?.stopTimes?.firstOrNull()
     val routeShortName = groups.firstOrNull()?.routeShortName ?: ""
     val mode = sample?.mode ?: TransportationMode.BUS
@@ -259,6 +278,12 @@ private fun RouteGroupView(
         }
     }
     val selectedPage = viewModel.currentPages[routeName] ?: 0
+    val highlightedIndex = highlightedPage(groups, highlight)
+    val highlightAlpha by animateFloatAsState(
+        targetValue = if (highlightedIndex != null && highlightedIndex == selectedPage) 1f else 0f,
+        animationSpec = LuxSprings.springFor(0.4, 0.85),
+        label = "nearbyHighlight"
+    )
     LaunchedEffect(selectedPage, groups.size) {
         val target = selectedPage.coerceIn(0, max(0, groups.size - 1))
         if (pagerState.settledPage != target && !pagerState.isScrollInProgress) pagerState.scrollToPage(target)
@@ -281,6 +306,18 @@ private fun RouteGroupView(
                     topLeft = Offset.Zero,
                     size = Size(size.width, size.height + overhangPx)
                 )
+                if (highlightAlpha > 0f) {
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                accent.copy(alpha = 0.14f * highlightAlpha),
+                                accent.copy(alpha = 0.04f * highlightAlpha)
+                            )
+                        ),
+                        topLeft = Offset.Zero,
+                        size = Size(size.width, size.height + overhangPx)
+                    )
+                }
             },
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
@@ -309,7 +346,8 @@ private fun RouteGroupView(
                             group = group,
                             onOpenTrip = onOpenTrip,
                             onSelectLine = { viewModel.userSelectedGroup(group) },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            pick = if (page == highlightedIndex) highlight else null
                         )
                     }
                 }

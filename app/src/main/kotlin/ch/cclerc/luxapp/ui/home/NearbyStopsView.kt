@@ -1,5 +1,8 @@
 package ch.cclerc.luxapp.ui.home
 
+import kotlinx.coroutines.delay
+import ch.cclerc.luxapp.domain.map.LatLng
+import ch.cclerc.luxapp.domain.intelligence.NearbyIntelligence
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -110,6 +113,26 @@ fun NearbyStopsView(
     val isAuthorizationNotAllowed = authorizationState == LocationAuthState.Denied
 
     var showingSuggestion by remember { mutableStateOf(false) }
+    val nearbyIntelligence = remember { NearbyIntelligence() }
+    val pick by nearbyIntelligence.pick.collectAsState()
+    DisposableEffect(nearbyIntelligence) { onDispose { nearbyIntelligence.close() } }
+
+    fun refreshIntelligence(force: Boolean = false) {
+        val nearbyStops = Progress.searchResults.take(2)
+        val displayed = nearbyStation(nearbyStops)?.let { listOf(it) } ?: nearbyStops
+        val location = LocationService.location.value?.let { LatLng(it.latitude, it.longitude) }
+        nearbyIntelligence.refresh(displayed, location, force)
+    }
+
+    fun highlight(stop: SearchResult): NearbyIntelligence.Pick? = pick?.takeIf { it.stop.id == stop.id }
+
+    LaunchedEffect(searchResults.map { it.id }) { refreshIntelligence() }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            if (!isAuthorizationNotAllowed) refreshIntelligence()
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -135,6 +158,7 @@ fun NearbyStopsView(
             if (event == Lifecycle.Event.ON_START) {
                 LocationService.refreshAuthState()
                 viewModel.onEnterForeground()
+                refreshIntelligence(force = true)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -325,7 +349,8 @@ fun NearbyStopsView(
                                 isLastStopOverall = true,
                                 onOpenStop = onOpenStop,
                                 onOpenTrip = onOpenTrip,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                highlight = highlight(station)
                             )
                         } else {
                             nearbyStops.forEachIndexed { index, result ->
@@ -344,7 +369,8 @@ fun NearbyStopsView(
                                     isLastStopOverall = isLastStop,
                                     onOpenStop = onOpenStop,
                                     onOpenTrip = onOpenTrip,
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier.fillMaxWidth(),
+                                    highlight = highlight(result)
                                 )
                             }
                         }
